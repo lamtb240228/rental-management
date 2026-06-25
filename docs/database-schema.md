@@ -1323,3 +1323,625 @@ Room có thể được ghi chỉ số dù chưa có hợp đồng hoạt độn
 
 Tuy nhiên, hệ thống chỉ tạo hóa đơn cho tenant khi tìm thấy hợp đồng hợp lệ trong kỳ lập hóa đơn.
 
+---
+
+## 18. Invoice Table
+
+### 18.1. invoices
+
+Bảng `invoices` lưu thông tin chung của hóa đơn được tạo cho một rental contract theo từng kỳ thanh toán.
+
+Các khoản phí cụ thể của hóa đơn được lưu trong bảng `invoice_items`.
+
+| Column            | PostgreSQL Type | Null | Constraint                                    | Description                         |
+| ----------------- | --------------- | ---- | --------------------------------------------- | ----------------------------------- |
+| `id`              | `BIGINT`        | No   | Primary Key, Identity                         | Mã định danh hóa đơn                |
+| `contract_id`     | `BIGINT`        | No   | Foreign Key                                   | Hợp đồng được lập hóa đơn           |
+| `invoice_number`  | `VARCHAR(50)`   | No   | Unique                                        | Mã hóa đơn hiển thị cho người dùng  |
+| `billing_month`   | `SMALLINT`      | No   | Check from 1 to 12                            | Tháng lập hóa đơn                   |
+| `billing_year`    | `SMALLINT`      | No   | Check constraint                              | Năm lập hóa đơn                     |
+| `issue_date`      | `DATE`          | Yes  |                                               | Ngày phát hành hóa đơn              |
+| `due_date`        | `DATE`          | Yes  | Check constraint                              | Ngày đến hạn thanh toán             |
+| `subtotal`        | `NUMERIC(15,2)` | No   | Default `0`, Check greater than or equal to 0 | Tổng các khoản phí trước điều chỉnh |
+| `discount_amount` | `NUMERIC(15,2)` | No   | Default `0`, Check greater than or equal to 0 | Số tiền được giảm                   |
+| `late_fee_amount` | `NUMERIC(15,2)` | No   | Default `0`, Check greater than or equal to 0 | Phí thanh toán trễ                  |
+| `total_amount`    | `NUMERIC(15,2)` | No   | Default `0`, Check greater than or equal to 0 | Tổng tiền cuối cùng cần thanh toán  |
+| `paid_amount`     | `NUMERIC(15,2)` | No   | Default `0`, Check constraint                 | Tổng số tiền đã thanh toán          |
+| `status`          | `VARCHAR(20)`   | No   | Default `DRAFT`, Check constraint             | Trạng thái hóa đơn                  |
+| `notes`           | `TEXT`          | Yes  |                                               | Ghi chú hóa đơn                     |
+| `created_at`      | `TIMESTAMPTZ`   | No   | Default current time                          | Thời gian tạo                       |
+| `updated_at`      | `TIMESTAMPTZ`   | No   | Default current time                          | Thời gian cập nhật                  |
+| `deleted_at`      | `TIMESTAMPTZ`   | Yes  |                                               | Thời gian xóa mềm                   |
+
+Các giá trị hợp lệ của `status`:
+
+* `DRAFT`: hóa đơn đang được soạn và chưa phát hành.
+* `UNPAID`: hóa đơn đã phát hành nhưng chưa được thanh toán.
+* `PARTIALLY_PAID`: hóa đơn mới được thanh toán một phần.
+* `PAID`: hóa đơn đã được thanh toán đầy đủ.
+* `OVERDUE`: hóa đơn đã quá hạn nhưng chưa được thanh toán đầy đủ.
+* `CANCELLED`: hóa đơn đã bị hủy.
+
+Foreign Key:
+
+* `contract_id` tham chiếu đến `rental_contracts.id`.
+* Foreign key sử dụng `ON DELETE RESTRICT`.
+* Không được xóa rental contract nếu hợp đồng đã có invoice liên quan.
+
+Constraints:
+
+* `contract_id` không được để trống.
+* `invoice_number` không được để trống.
+* `invoice_number` không được trùng.
+* `billing_month` phải có giá trị từ `1` đến `12`.
+* `billing_year` phải lớn hơn hoặc bằng `2000`.
+* Mỗi rental contract chỉ được có một hóa đơn chính trong cùng một tháng và năm.
+* `due_date` không được trước `issue_date` khi cả hai giá trị đã được nhập.
+* `subtotal` không được âm.
+* `discount_amount` không được âm.
+* `late_fee_amount` không được âm.
+* `total_amount` không được âm.
+* `paid_amount` không được âm.
+* `paid_amount` không được lớn hơn `total_amount`.
+* Hóa đơn phải có ít nhất một invoice item trước khi chuyển từ `DRAFT` sang `UNPAID`.
+* Hóa đơn đã có payment không được xóa vật lý.
+* Hóa đơn đã có trạng thái `PAID` không được tự do chỉnh sửa các khoản phí.
+* Khi hóa đơn bị hủy, lý do hủy phải được ghi nhận trong `notes` hoặc trong quy trình nghiệp vụ liên quan.
+
+Constraint cho tháng hóa đơn:
+
+```sql
+CHECK (billing_month BETWEEN 1 AND 12)
+```
+
+Constraint cho năm hóa đơn:
+
+```sql
+CHECK (billing_year >= 2000)
+```
+
+Constraint cho ngày phát hành và ngày đến hạn:
+
+```sql
+CHECK (
+    issue_date IS NULL
+    OR due_date IS NULL
+    OR due_date >= issue_date
+)
+```
+
+Constraint cho các giá trị tiền:
+
+```sql
+CHECK (
+    subtotal >= 0
+    AND discount_amount >= 0
+    AND late_fee_amount >= 0
+    AND total_amount >= 0
+    AND paid_amount >= 0
+    AND paid_amount <= total_amount
+)
+```
+
+### Invoice Period Unique Rule
+
+Mỗi rental contract chỉ có một hóa đơn chính trong một tháng và năm.
+
+Ví dụ hợp lệ:
+
+| contract_id | billing_month | billing_year |
+| ----------: | ------------: | -----------: |
+|         100 |             5 |         2026 |
+|         100 |             6 |         2026 |
+|         101 |             6 |         2026 |
+
+Ví dụ không hợp lệ:
+
+| contract_id | billing_month | billing_year |
+| ----------: | ------------: | -----------: |
+|         100 |             6 |         2026 |
+|         100 |             6 |         2026 |
+
+Do hệ thống sử dụng soft delete, khi tạo Flyway migration sẽ sử dụng partial unique index:
+
+```sql
+CREATE UNIQUE INDEX uk_invoices_contract_period_active
+ON invoices(contract_id, billing_year, billing_month)
+WHERE deleted_at IS NULL
+  AND status <> 'CANCELLED';
+```
+
+Index trên ngăn việc tạo hai hóa đơn đang có hiệu lực cho cùng một hợp đồng và kỳ thanh toán.
+
+### Invoice Amount Calculation
+
+`subtotal` là tổng số tiền của tất cả các dòng trong bảng `invoice_items`.
+
+Công thức:
+
+```text
+subtotal = tổng amount của invoice_items
+```
+
+`total_amount` được tính bằng:
+
+```text
+total_amount
+    = subtotal
+    - discount_amount
+    + late_fee_amount
+```
+
+Số tiền còn phải thanh toán không được lưu thành một cột riêng.
+
+Nó được tính bằng:
+
+```text
+remaining_amount
+    = total_amount
+    - paid_amount
+```
+
+Việc tính và cập nhật các giá trị này được thực hiện trong Spring Boot Service.
+
+### Example Invoice
+
+Ví dụ hóa đơn tháng 6 năm 2026:
+
+| Field             |          Value |
+| ----------------- | -------------: |
+| `contract_id`     |            100 |
+| `invoice_number`  |  INV-2026-0006 |
+| `billing_month`   |              6 |
+| `billing_year`    |           2026 |
+| `subtotal`        |     3680000.00 |
+| `discount_amount` |      100000.00 |
+| `late_fee_amount` |           0.00 |
+| `total_amount`    |     3580000.00 |
+| `paid_amount`     |     2000000.00 |
+| `status`          | PARTIALLY_PAID |
+
+Số tiền còn phải thanh toán:
+
+```text
+3.580.000 - 2.000.000 = 1.580.000
+```
+
+---
+
+## 19. Rental Contract and Invoice Relationship
+
+Quan hệ giữa `rental_contracts` và `invoices`:
+
+```text
+rental_contracts
+        1
+        |
+        | contract_id
+        |
+        N
+     invoices
+```
+
+* Một rental contract có thể có nhiều invoice theo thời gian.
+* Một invoice chỉ thuộc về một rental contract.
+* Cột `invoices.contract_id` kết nối hóa đơn với hợp đồng.
+
+Ví dụ:
+
+```text
+Rental Contract HD-2026-001
+├── Invoice tháng 1/2026
+├── Invoice tháng 2/2026
+├── Invoice tháng 3/2026
+└── Invoice tháng 4/2026
+```
+
+### Relationship Summary
+
+| Relationship                | Type        | Foreign Key            |
+| --------------------------- | ----------- | ---------------------- |
+| Rental Contract với Invoice | One-to-Many | `invoices.contract_id` |
+
+---
+
+## 20. Invoice Status and Business Rules
+
+### 20.1. Draft Invoice
+
+Khi hóa đơn mới được tạo:
+
+```text
+status = DRAFT
+```
+
+Ở trạng thái này:
+
+* Landlord có thể thêm hoặc chỉnh sửa invoice item.
+* `issue_date` và `due_date` có thể chưa được nhập.
+* Hóa đơn chưa được xem là khoản nợ chính thức của tenant.
+* Hóa đơn chưa được thanh toán.
+
+### 20.2. Issuing an Invoice
+
+Trước khi chuyển hóa đơn từ `DRAFT` sang `UNPAID`, hệ thống phải kiểm tra:
+
+* Hóa đơn có ít nhất một invoice item.
+* `subtotal` đã được tính chính xác.
+* `total_amount` đã được tính chính xác.
+* `issue_date` đã được nhập.
+* `due_date` đã được nhập.
+* `due_date` không trước `issue_date`.
+* Hợp đồng tồn tại và hợp lệ trong kỳ lập hóa đơn.
+
+### 20.3. Unpaid Invoice
+
+Hóa đơn có trạng thái `UNPAID` khi:
+
+```text
+paid_amount = 0
+AND
+current_date <= due_date
+```
+
+### 20.4. Partially Paid Invoice
+
+Hóa đơn có trạng thái `PARTIALLY_PAID` khi:
+
+```text
+paid_amount > 0
+AND
+paid_amount < total_amount
+AND
+current_date <= due_date
+```
+
+### 20.5. Paid Invoice
+
+Hóa đơn có trạng thái `PAID` khi:
+
+```text
+paid_amount = total_amount
+```
+
+### 20.6. Overdue Invoice
+
+Hóa đơn có trạng thái `OVERDUE` khi:
+
+```text
+current_date > due_date
+AND
+paid_amount < total_amount
+```
+
+Hóa đơn có thể quá hạn dù đã thanh toán một phần.
+
+### 20.7. Cancelled Invoice
+
+Hóa đơn chỉ nên được chuyển sang `CANCELLED` khi:
+
+* Hóa đơn được tạo nhầm.
+* Hóa đơn chưa có payment hợp lệ.
+* Lý do hủy đã được ghi nhận.
+
+Không nên xóa trực tiếp hóa đơn để tránh mất lịch sử.
+
+### 20.8. Status Update Rule
+
+Trạng thái hóa đơn phải được Spring Boot Service cập nhật dựa trên:
+
+* `total_amount`
+* `paid_amount`
+* `due_date`
+* Trạng thái hủy
+* Trạng thái phát hành
+
+Không cho phép frontend tự gửi một trạng thái tùy ý mà không qua kiểm tra nghiệp vụ.
+
+---
+
+## 21. Invoice Item Table
+
+### 21.1. invoice_items
+
+Bảng `invoice_items` lưu từng khoản phí thuộc một invoice.
+
+Mỗi dòng trong bảng đại diện cho một khoản như tiền phòng, tiền điện, tiền nước, phí dịch vụ hoặc một khoản phí khác.
+
+| Column        | PostgreSQL Type | Null | Constraint                                    | Description            |
+| ------------- | --------------- | ---- | --------------------------------------------- | ---------------------- |
+| `id`          | `BIGINT`        | No   | Primary Key, Identity                         | Mã khoản phí           |
+| `invoice_id`  | `BIGINT`        | No   | Foreign Key                                   | Hóa đơn chứa khoản phí |
+| `item_type`   | `VARCHAR(30)`   | No   | Check constraint                              | Loại khoản phí         |
+| `description` | `VARCHAR(255)`  | No   |                                               | Nội dung khoản phí     |
+| `quantity`    | `NUMERIC(12,2)` | No   | Check greater than 0                          | Số lượng sử dụng       |
+| `unit_price`  | `NUMERIC(15,2)` | No   | Check greater than or equal to 0              | Đơn giá                |
+| `amount`      | `NUMERIC(15,2)` | No   | Check greater than or equal to 0              | Thành tiền             |
+| `sort_order`  | `SMALLINT`      | No   | Default `0`, Check greater than or equal to 0 | Thứ tự hiển thị        |
+| `created_at`  | `TIMESTAMPTZ`   | No   | Default current time                          | Thời gian tạo          |
+| `updated_at`  | `TIMESTAMPTZ`   | No   | Default current time                          | Thời gian cập nhật     |
+
+Các giá trị hợp lệ ban đầu của `item_type`:
+
+* `RENT`: tiền thuê phòng.
+* `ELECTRICITY`: tiền điện.
+* `WATER`: tiền nước.
+* `SERVICE`: phí dịch vụ.
+* `PARKING`: phí gửi xe.
+* `INTERNET`: phí Internet.
+* `OTHER`: khoản phí khác.
+
+Foreign Key:
+
+* `invoice_id` tham chiếu đến `invoices.id`.
+* Foreign key sử dụng `ON DELETE RESTRICT`.
+* Không được xóa invoice nếu invoice vẫn còn invoice item liên quan.
+
+Constraints:
+
+* `invoice_id` không được để trống.
+* `item_type` không được để trống.
+* `description` không được để trống.
+* `quantity` phải lớn hơn `0`.
+* `unit_price` không được âm.
+* `amount` không được âm.
+* `sort_order` không được âm.
+* `amount` phải bằng `quantity` nhân với `unit_price`.
+* Hóa đơn phải có ít nhất một invoice item trước khi được phát hành.
+* Invoice item chỉ được thêm, sửa hoặc xóa khi invoice đang ở trạng thái `DRAFT`.
+* Không được tự do chỉnh sửa invoice item của hóa đơn đã phát hành.
+* Không được xóa invoice item khỏi hóa đơn đã có payment.
+* Khi thêm, sửa hoặc xóa invoice item, hệ thống phải tính lại `invoices.subtotal` và `invoices.total_amount`.
+
+Constraint cho số lượng:
+
+```sql
+CHECK (quantity > 0)
+```
+
+Constraint cho đơn giá và thành tiền:
+
+```sql
+CHECK (
+    unit_price >= 0
+    AND amount >= 0
+)
+```
+
+Constraint cho thứ tự hiển thị:
+
+```sql
+CHECK (sort_order >= 0)
+```
+
+### Invoice Item Amount Calculation
+
+Thành tiền của mỗi invoice item được tính bằng:
+
+```text
+amount = quantity × unit_price
+```
+
+Ví dụ tiền điện:
+
+```text
+quantity = 120
+unit_price = 3.500
+amount = 120 × 3.500 = 420.000
+```
+
+Ví dụ tiền phòng:
+
+```text
+quantity = 1
+unit_price = 3.000.000
+amount = 1 × 3.000.000 = 3.000.000
+```
+
+Giá trị `amount` được lưu trong database để giữ lại giá trị chính thức của khoản phí tại thời điểm lập hóa đơn.
+
+Spring Boot Service phải tự tính `amount` từ `quantity` và `unit_price`.
+
+Frontend không được tự quyết định giá trị `amount`.
+
+### Invoice Subtotal Calculation
+
+`invoices.subtotal` được tính bằng tổng `amount` của tất cả invoice item thuộc hóa đơn:
+
+```text
+invoice.subtotal = SUM(invoice_items.amount)
+```
+
+Ví dụ:
+
+| Item        |    Amount |
+| ----------- | --------: |
+| Tiền phòng  | 3.000.000 |
+| Tiền điện   |   420.000 |
+| Tiền nước   |   160.000 |
+| Phí dịch vụ |   100.000 |
+
+Kết quả:
+
+```text
+subtotal
+= 3.000.000
++ 420.000
++ 160.000
++ 100.000
+= 3.680.000
+```
+
+Sau đó tổng tiền cuối cùng được tính:
+
+```text
+total_amount
+    = subtotal
+    - discount_amount
+    + late_fee_amount
+```
+
+### Example Invoice Items
+
+Ví dụ các khoản phí của hóa đơn có `invoice_id = 50`:
+
+| invoice_id | item_type   | description               | quantity | unit_price |     amount |
+| ---------: | ----------- | ------------------------- | -------: | ---------: | ---------: |
+|         50 | RENT        | Tiền phòng tháng 6/2026   |        1 | 3000000.00 | 3000000.00 |
+|         50 | ELECTRICITY | Điện sử dụng tháng 6/2026 |      120 |    3500.00 |  420000.00 |
+|         50 | WATER       | Nước sử dụng tháng 6/2026 |        8 |   20000.00 |  160000.00 |
+|         50 | SERVICE     | Phí dịch vụ tháng 6/2026  |        1 |  100000.00 |  100000.00 |
+
+Tổng `amount` của bốn dòng là:
+
+```text
+3.680.000
+```
+
+Do đó:
+
+```text
+invoices.subtotal = 3.680.000
+```
+
+### Item Type Examples
+
+#### RENT
+
+```text
+item_type = RENT
+quantity = 1
+unit_price = giá thuê trong rental_contracts
+```
+
+#### ELECTRICITY
+
+```text
+item_type = ELECTRICITY
+quantity = chỉ số điện mới - chỉ số điện cũ
+unit_price = electricity_unit_price
+```
+
+#### WATER
+
+```text
+item_type = WATER
+quantity = chỉ số nước mới - chỉ số nước cũ
+unit_price = water_unit_price
+```
+
+#### SERVICE
+
+```text
+item_type = SERVICE
+quantity = 1
+unit_price = mức phí dịch vụ
+```
+
+#### OTHER
+
+Khi sử dụng `OTHER`, cột `description` phải ghi rõ nội dung khoản phí.
+
+Ví dụ:
+
+```text
+item_type = OTHER
+description = Phí thay khóa cửa
+quantity = 1
+unit_price = 150.000
+```
+
+---
+
+## 22. Invoice and Invoice Item Relationship
+
+Quan hệ giữa `invoices` và `invoice_items`:
+
+```text
+invoices
+    1
+    |
+    | invoice_id
+    |
+    N
+invoice_items
+```
+
+* Một invoice có thể chứa nhiều invoice item.
+* Một invoice item chỉ thuộc về một invoice.
+* Cột `invoice_items.invoice_id` kết nối khoản phí với hóa đơn.
+
+Ví dụ:
+
+```text
+Invoice INV-2026-0006
+├── RENT
+├── ELECTRICITY
+├── WATER
+└── SERVICE
+```
+
+### Relationship Summary
+
+| Relationship             | Type        | Foreign Key                |
+| ------------------------ | ----------- | -------------------------- |
+| Invoice với Invoice Item | One-to-Many | `invoice_items.invoice_id` |
+
+---
+
+## 23. Invoice Item Business Rules
+
+### 23.1. Adding an Invoice Item
+
+Invoice item chỉ được thêm khi:
+
+* Invoice tồn tại.
+* Invoice đang ở trạng thái `DRAFT`.
+* Loại khoản phí hợp lệ.
+* `quantity` lớn hơn `0`.
+* `unit_price` không âm.
+* `amount` được Service tính chính xác.
+* Invoice chưa bị xóa hoặc hủy.
+
+### 23.2. Updating an Invoice Item
+
+Invoice item chỉ được cập nhật khi invoice đang ở trạng thái `DRAFT`.
+
+Khi thay đổi `quantity` hoặc `unit_price`, hệ thống phải:
+
+1. Tính lại `invoice_items.amount`.
+2. Tính lại `invoices.subtotal`.
+3. Tính lại `invoices.total_amount`.
+4. Lưu tất cả thay đổi trong cùng một database transaction.
+
+### 23.3. Deleting an Invoice Item
+
+Invoice item có thể được xóa khi:
+
+* Invoice đang ở trạng thái `DRAFT`.
+* Invoice chưa có payment.
+* Sau khi xóa, hệ thống tính lại tổng tiền.
+
+Không được xóa invoice item khỏi hóa đơn đã phát hành hoặc đã thanh toán.
+
+### 23.4. Issuing an Invoice
+
+Trước khi phát hành invoice, hệ thống phải kiểm tra:
+
+* Invoice có ít nhất một invoice item.
+* Tất cả invoice item có số lượng và đơn giá hợp lệ.
+* `amount` của từng item được tính chính xác.
+* `subtotal` bằng tổng `amount` của các item.
+* `total_amount` được tính chính xác.
+* `issue_date` và `due_date` hợp lệ.
+
+### 23.5. Transaction Rule
+
+Các thao tác sau phải được thực hiện trong cùng một database transaction:
+
+* Thêm invoice item.
+* Tính lại subtotal.
+* Tính lại total amount.
+* Cập nhật invoice.
+
+Nếu một bước thất bại, toàn bộ thay đổi phải được hoàn tác để tránh dữ liệu không nhất quán.
