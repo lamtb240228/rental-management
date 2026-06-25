@@ -1945,3 +1945,1306 @@ Các thao tác sau phải được thực hiện trong cùng một database tran
 * Cập nhật invoice.
 
 Nếu một bước thất bại, toàn bộ thay đổi phải được hoàn tác để tránh dữ liệu không nhất quán.
+
+---
+
+## 24. Payment Table
+
+### 24.1. payments
+
+Bảng `payments` lưu từng lần thanh toán của một invoice.
+
+Một invoice có thể được thanh toán một lần hoặc nhiều lần cho đến khi đủ tổng số tiền cần thanh toán.
+
+| Column                  | PostgreSQL Type | Null | Constraint                            | Description                             |
+| ----------------------- | --------------- | ---- | ------------------------------------- | --------------------------------------- |
+| `id`                    | `BIGINT`        | No   | Primary Key, Identity                 | Mã thanh toán                           |
+| `invoice_id`            | `BIGINT`        | No   | Foreign Key                           | Hóa đơn được thanh toán                 |
+| `amount`                | `NUMERIC(15,2)` | No   | Check greater than 0                  | Số tiền thanh toán                      |
+| `payment_method`        | `VARCHAR(30)`   | No   | Check constraint                      | Phương thức thanh toán                  |
+| `payment_status`        | `VARCHAR(20)`   | No   | Default `COMPLETED`, Check constraint | Trạng thái giao dịch                    |
+| `paid_at`               | `TIMESTAMPTZ`   | No   | Default current time                  | Thời điểm thanh toán                    |
+| `transaction_reference` | `VARCHAR(100)`  | Yes  | Unique when provided                  | Mã tham chiếu giao dịch                 |
+| `received_by`           | `BIGINT`        | Yes  | Foreign Key                           | Tài khoản ghi nhận hoặc nhận thanh toán |
+| `notes`                 | `TEXT`          | Yes  |                                       | Ghi chú                                 |
+| `created_at`            | `TIMESTAMPTZ`   | No   | Default current time                  | Thời gian tạo                           |
+| `updated_at`            | `TIMESTAMPTZ`   | No   | Default current time                  | Thời gian cập nhật                      |
+
+Các giá trị hợp lệ ban đầu của `payment_method`:
+
+* `CASH`: tiền mặt.
+* `BANK_TRANSFER`: chuyển khoản ngân hàng.
+* `E_WALLET`: ví điện tử.
+* `CARD`: thanh toán bằng thẻ.
+* `OTHER`: phương thức khác.
+
+Các giá trị hợp lệ của `payment_status`:
+
+* `PENDING`: giao dịch đang chờ xác nhận.
+* `COMPLETED`: giao dịch đã hoàn tất và được tính vào số tiền đã thanh toán.
+* `FAILED`: giao dịch thất bại.
+* `CANCELLED`: giao dịch bị hủy.
+* `REFUNDED`: khoản tiền đã được hoàn lại.
+
+Foreign Keys:
+
+* `invoice_id` tham chiếu đến `invoices.id`.
+* `received_by` tham chiếu đến `user_accounts.id`.
+* Các foreign key sử dụng `ON DELETE RESTRICT`.
+* Không được xóa invoice nếu invoice đã có payment liên quan.
+* Không được xóa user account nếu tài khoản đã được ghi nhận là người nhận payment.
+
+Constraints:
+
+* `invoice_id` không được để trống.
+* `amount` phải lớn hơn `0`.
+* `payment_method` không được để trống.
+* `payment_status` không được để trống.
+* `paid_at` không được để trống.
+* Payment chỉ được tạo cho invoice đã được phát hành.
+* Không được tạo payment cho invoice có trạng thái `DRAFT` hoặc `CANCELLED`.
+* Tổng các payment có trạng thái `COMPLETED` không được vượt quá `invoices.total_amount`.
+* Payment có trạng thái `PENDING`, `FAILED`, `CANCELLED` hoặc `REFUNDED` không được tính vào `invoices.paid_amount`.
+* `transaction_reference` không được trùng nếu được cung cấp.
+* Payment đã hoàn tất không được xóa vật lý.
+* Nếu payment được nhập sai, hệ thống phải hủy, hoàn tiền hoặc tạo giao dịch điều chỉnh để giữ lịch sử.
+* Khi payment thay đổi trạng thái, hệ thống phải tính lại `invoices.paid_amount` và trạng thái invoice.
+
+Constraint cho số tiền thanh toán:
+
+```sql
+CHECK (amount > 0)
+```
+
+### Payment Reference Unique Rule
+
+`transaction_reference` dùng để lưu mã giao dịch từ ngân hàng hoặc hệ thống thanh toán.
+
+Ví dụ:
+
+```text
+FT260625123456
+```
+
+Vì thanh toán tiền mặt có thể không có mã giao dịch, cột này được phép là `NULL`.
+
+Khi tạo Flyway migration, có thể sử dụng partial unique index:
+
+```sql
+CREATE UNIQUE INDEX uk_payments_transaction_reference
+ON payments(transaction_reference)
+WHERE transaction_reference IS NOT NULL;
+```
+
+Index này bảo đảm một mã giao dịch không được sử dụng cho hai payment khác nhau.
+
+### Example Payments
+
+Ví dụ invoice có:
+
+```text
+invoice_id = 50
+total_amount = 3.500.000
+```
+
+Tenant thanh toán hai lần:
+
+| id | invoice_id |     amount | payment_method | payment_status | paid_at          |
+| -: | ---------: | ---------: | -------------- | -------------- | ---------------- |
+|  1 |         50 | 2000000.00 | BANK_TRANSFER  | COMPLETED      | 2026-06-05 10:30 |
+|  2 |         50 | 1500000.00 | CASH           | COMPLETED      | 2026-06-10 18:00 |
+
+Tổng tiền đã thanh toán:
+
+```text
+2.000.000 + 1.500.000 = 3.500.000
+```
+
+Do đó:
+
+```text
+invoices.paid_amount = 3.500.000
+invoices.status = PAID
+```
+
+Ví dụ payment đang chờ xác nhận:
+
+| invoice_id |    amount | payment_status |
+| ---------: | --------: | -------------- |
+|         50 | 500000.00 | PENDING        |
+
+Payment có trạng thái `PENDING` chưa được tính vào `invoices.paid_amount`.
+
+### Paid Amount Calculation
+
+`invoices.paid_amount` được tính bằng tổng các payment có trạng thái `COMPLETED`:
+
+```text
+invoices.paid_amount
+    = SUM(payments.amount)
+      WHERE payment_status = COMPLETED
+```
+
+Các payment có trạng thái sau không được tính:
+
+* `PENDING`
+* `FAILED`
+* `CANCELLED`
+* `REFUNDED`
+
+Sau khi tính `paid_amount`, trạng thái invoice được cập nhật:
+
+```text
+paid_amount = 0
+→ UNPAID
+
+0 < paid_amount < total_amount
+→ PARTIALLY_PAID
+
+paid_amount = total_amount
+→ PAID
+
+current_date > due_date
+AND paid_amount < total_amount
+→ OVERDUE
+```
+
+### Overpayment Rule
+
+Trước khi ghi nhận payment, Spring Boot Service phải tính:
+
+```text
+remaining_amount
+    = invoice.total_amount
+    - invoice.paid_amount
+```
+
+Payment mới không được lớn hơn số tiền còn lại.
+
+Ví dụ:
+
+```text
+total_amount = 3.500.000
+paid_amount = 3.000.000
+remaining_amount = 500.000
+```
+
+Payment mới tối đa là:
+
+```text
+500.000
+```
+
+Không được tạo payment:
+
+```text
+600.000
+```
+
+vì tổng thanh toán sẽ vượt quá tổng tiền hóa đơn.
+
+---
+
+## 25. Invoice and Payment Relationship
+
+Quan hệ giữa `invoices` và `payments`:
+
+```text
+invoices
+    1
+    |
+    | invoice_id
+    |
+    N
+ payments
+```
+
+* Một invoice có thể có nhiều payment.
+* Một payment chỉ thuộc về một invoice.
+* Cột `payments.invoice_id` kết nối payment với invoice.
+
+Ví dụ:
+
+```text
+Invoice INV-2026-0006
+├── Payment 1: 2.000.000
+└── Payment 2: 1.500.000
+```
+
+### Relationship Summary
+
+| Relationship        | Type        | Foreign Key           |
+| ------------------- | ----------- | --------------------- |
+| Invoice với Payment | One-to-Many | `payments.invoice_id` |
+
+---
+
+## 26. Payment Business Rules
+
+### 26.1. Creating a Payment
+
+Một payment chỉ được tạo khi:
+
+* Invoice tồn tại.
+* Invoice đã được phát hành.
+* Invoice không có trạng thái `DRAFT`.
+* Invoice không có trạng thái `CANCELLED`.
+* Số tiền thanh toán lớn hơn `0`.
+* Số tiền thanh toán không vượt quá số tiền còn lại.
+* Phương thức thanh toán hợp lệ.
+* Mã giao dịch không bị trùng nếu được cung cấp.
+
+### 26.2. Completed Payment
+
+Payment có trạng thái `COMPLETED` khi:
+
+* Tiền đã được nhận hoặc xác nhận.
+* Giao dịch không bị lỗi.
+* Giao dịch đủ thông tin để đối chiếu.
+
+Chỉ payment `COMPLETED` được cộng vào `invoices.paid_amount`.
+
+### 26.3. Pending Payment
+
+Payment có trạng thái `PENDING` khi:
+
+* Chuyển khoản đang chờ xác nhận.
+* Cổng thanh toán chưa trả kết quả cuối cùng.
+* Landlord chưa xác nhận đã nhận tiền.
+
+Payment `PENDING` chưa được tính vào số tiền đã thanh toán.
+
+### 26.4. Failed or Cancelled Payment
+
+Payment `FAILED` hoặc `CANCELLED`:
+
+* Không được tính vào `invoices.paid_amount`.
+* Vẫn được giữ trong database để phục vụ tra cứu.
+* Không bị xóa vật lý.
+
+### 26.5. Refunded Payment
+
+Khi một payment đã được hoàn tiền:
+
+```text
+payment_status = REFUNDED
+```
+
+Payment đó không còn được tính vào `invoices.paid_amount`.
+
+Sau khi hoàn tiền, hệ thống phải tính lại:
+
+* `invoices.paid_amount`
+* `invoices.status`
+* Số tiền tenant còn phải trả
+
+### 26.6. Recalculating Invoice Payment Status
+
+Mỗi khi payment được:
+
+* Tạo mới
+* Hoàn tất
+* Hủy
+* Thất bại
+* Hoàn tiền
+
+Spring Boot Service phải:
+
+1. Tính tổng payment có trạng thái `COMPLETED`.
+2. Cập nhật `invoices.paid_amount`.
+3. Tính số tiền còn lại.
+4. Cập nhật `invoices.status`.
+5. Lưu tất cả thay đổi trong cùng một database transaction.
+
+### 26.7. Payment History Rule
+
+Payment đã được tạo phải được giữ lại để bảo đảm lịch sử tài chính.
+
+Không nên sửa trực tiếp:
+
+* Số tiền của payment đã hoàn tất.
+* Ngày thanh toán đã xác nhận.
+* Mã giao dịch đã đối chiếu.
+
+Nếu có sai sót, hệ thống nên sử dụng quy trình:
+
+* Hủy giao dịch.
+* Hoàn tiền.
+* Tạo giao dịch điều chỉnh.
+* Ghi chú lý do thay đổi.
+
+### 26.8. Transaction Rule
+
+Việc tạo payment và cập nhật invoice phải nằm trong cùng một database transaction.
+
+Nếu tạo payment thành công nhưng cập nhật invoice thất bại, toàn bộ thao tác phải được hoàn tác.
+
+Điều này ngăn trường hợp:
+
+```text
+Payment đã tồn tại
+nhưng
+invoices.paid_amount chưa được cập nhật
+```
+---
+
+## 27. Maintenance Request Table
+
+### 27.1. maintenance_requests
+
+Bảng `maintenance_requests` lưu các yêu cầu kiểm tra, sửa chữa hoặc bảo trì liên quan đến một room.
+
+Yêu cầu có thể được tạo bởi tenant hoặc landlord.
+
+| Column             | PostgreSQL Type | Null | Constraint                          | Description                      |
+| ------------------ | --------------- | ---- | ----------------------------------- | -------------------------------- |
+| `id`               | `BIGINT`        | No   | Primary Key, Identity               | Mã yêu cầu sửa chữa              |
+| `room_id`          | `BIGINT`        | No   | Foreign Key                         | Phòng xảy ra sự cố               |
+| `tenant_id`        | `BIGINT`        | Yes  | Foreign Key                         | Tenant liên quan nếu có          |
+| `created_by`       | `BIGINT`        | No   | Foreign Key                         | Tài khoản tạo yêu cầu            |
+| `assigned_to`      | `BIGINT`        | Yes  | Foreign Key                         | Tài khoản chịu trách nhiệm xử lý |
+| `category`         | `VARCHAR(30)`   | No   | Default `OTHER`, Check constraint   | Nhóm sự cố                       |
+| `title`            | `VARCHAR(150)`  | No   |                                     | Tiêu đề yêu cầu                  |
+| `description`      | `TEXT`          | No   |                                     | Mô tả chi tiết sự cố             |
+| `priority`         | `VARCHAR(20)`   | No   | Default `MEDIUM`, Check constraint  | Mức độ ưu tiên                   |
+| `status`           | `VARCHAR(20)`   | No   | Default `PENDING`, Check constraint | Trạng thái xử lý                 |
+| `submitted_at`     | `TIMESTAMPTZ`   | No   | Default current time                | Thời điểm gửi yêu cầu            |
+| `started_at`       | `TIMESTAMPTZ`   | Yes  | Check constraint                    | Thời điểm bắt đầu xử lý          |
+| `completed_at`     | `TIMESTAMPTZ`   | Yes  | Check constraint                    | Thời điểm hoàn thành             |
+| `cancelled_at`     | `TIMESTAMPTZ`   | Yes  | Check constraint                    | Thời điểm hủy                    |
+| `resolution_notes` | `TEXT`          | Yes  |                                     | Ghi chú kết quả xử lý            |
+| `created_at`       | `TIMESTAMPTZ`   | No   | Default current time                | Thời gian tạo dữ liệu            |
+| `updated_at`       | `TIMESTAMPTZ`   | No   | Default current time                | Thời gian cập nhật               |
+| `deleted_at`       | `TIMESTAMPTZ`   | Yes  |                                     | Thời gian xóa mềm                |
+
+Các giá trị hợp lệ ban đầu của `category`:
+
+* `ELECTRICAL`: sự cố điện.
+* `PLUMBING`: sự cố nước hoặc đường ống.
+* `APPLIANCE`: thiết bị trong phòng bị hỏng.
+* `FURNITURE`: đồ nội thất bị hỏng.
+* `SECURITY`: cửa, khóa hoặc vấn đề an ninh.
+* `STRUCTURAL`: tường, trần, sàn hoặc kết cấu.
+* `OTHER`: sự cố khác.
+
+Các giá trị hợp lệ của `priority`:
+
+* `LOW`: mức độ thấp, chưa cần xử lý ngay.
+* `MEDIUM`: mức độ thông thường.
+* `HIGH`: cần được xử lý sớm.
+* `URGENT`: khẩn cấp, có thể ảnh hưởng đến an toàn hoặc sinh hoạt.
+
+Các giá trị hợp lệ của `status`:
+
+* `PENDING`: đang chờ tiếp nhận.
+* `IN_PROGRESS`: đang được xử lý.
+* `COMPLETED`: đã hoàn thành.
+* `CANCELLED`: đã bị hủy.
+
+Foreign Keys:
+
+* `room_id` tham chiếu đến `rooms.id`.
+* `tenant_id` tham chiếu đến `tenants.id`.
+* `created_by` tham chiếu đến `user_accounts.id`.
+* `assigned_to` tham chiếu đến `user_accounts.id`.
+* Các foreign key sử dụng `ON DELETE RESTRICT`.
+
+Constraints:
+
+* `room_id` không được để trống.
+* `created_by` không được để trống.
+* `title` không được để trống.
+* `description` không được để trống.
+* `category` phải là một giá trị hợp lệ.
+* `priority` phải là một giá trị hợp lệ.
+* `status` phải là một giá trị hợp lệ.
+* Tenant chỉ được gửi yêu cầu cho room mà tenant đang hoặc đã thuê hợp lệ.
+* Nếu `tenant_id` được cung cấp, tenant phải thuộc phạm vi quản lý của landlord sở hữu room.
+* Tài khoản `created_by` phải có quyền truy cập đến room.
+* Nếu `assigned_to` được cung cấp, tài khoản đó phải có quyền quản lý hoặc xử lý room.
+* `started_at` không được trước `submitted_at`.
+* `completed_at` không được trước `submitted_at`.
+* `completed_at` không được trước `started_at` nếu đã có `started_at`.
+* `cancelled_at` không được trước `submitted_at`.
+* Yêu cầu có trạng thái `COMPLETED` phải có `completed_at`.
+* Yêu cầu có trạng thái `CANCELLED` phải có `cancelled_at`.
+* Yêu cầu đã hoàn thành không được xóa vật lý.
+* Yêu cầu đã hủy vẫn phải được giữ lại để bảo đảm lịch sử.
+
+Constraint cơ bản cho thời gian bắt đầu:
+
+```sql
+CHECK (
+    started_at IS NULL
+    OR started_at >= submitted_at
+)
+```
+
+Constraint cho thời gian hoàn thành:
+
+```sql
+CHECK (
+    completed_at IS NULL
+    OR (
+        completed_at >= submitted_at
+        AND (
+            started_at IS NULL
+            OR completed_at >= started_at
+        )
+    )
+)
+```
+
+Constraint cho thời gian hủy:
+
+```sql
+CHECK (
+    cancelled_at IS NULL
+    OR cancelled_at >= submitted_at
+)
+```
+
+### Example Maintenance Requests
+
+Ví dụ tenant gửi yêu cầu sửa chữa:
+
+| Field         | Value             |
+| ------------- | ----------------- |
+| `room_id`     | 10                |
+| `tenant_id`   | 20                |
+| `created_by`  | 35                |
+| `assigned_to` | 5                 |
+| `category`    | PLUMBING          |
+| `title`       | Vòi nước bị rò rỉ |
+| `priority`    | HIGH              |
+| `status`      | PENDING           |
+
+Ví dụ landlord tự tạo yêu cầu cho phòng trống:
+
+| Field         | Value                        |
+| ------------- | ---------------------------- |
+| `room_id`     | 12                           |
+| `tenant_id`   | NULL                         |
+| `created_by`  | 5                            |
+| `assigned_to` | 5                            |
+| `category`    | ELECTRICAL                   |
+| `title`       | Bóng đèn trong phòng bị hỏng |
+| `priority`    | MEDIUM                       |
+| `status`      | PENDING                      |
+
+Trong ví dụ thứ hai, `tenant_id` bằng `NULL` vì không có tenant gửi yêu cầu.
+
+---
+
+## 28. Maintenance Request Relationships
+
+### 28.1. Room and Maintenance Request
+
+Quan hệ giữa `rooms` và `maintenance_requests`:
+
+```text
+rooms
+  1
+  |
+  | room_id
+  |
+  N
+maintenance_requests
+```
+
+* Một room có thể có nhiều maintenance request.
+* Một maintenance request chỉ thuộc về một room.
+* Cột `maintenance_requests.room_id` kết nối yêu cầu với phòng.
+
+### 28.2. Tenant and Maintenance Request
+
+Quan hệ giữa `tenants` và `maintenance_requests`:
+
+```text
+tenants
+  1
+  |
+  | tenant_id
+  |
+  N
+maintenance_requests
+```
+
+* Một tenant có thể gửi nhiều maintenance request.
+* Một maintenance request có thể liên kết với một tenant hoặc không có tenant.
+* `tenant_id` được phép là `NULL` khi yêu cầu do landlord tự tạo.
+
+### 28.3. User Account and Maintenance Request
+
+Một user account có thể tạo nhiều yêu cầu:
+
+```text
+user_accounts
+      1
+      |
+      | created_by
+      |
+      N
+maintenance_requests
+```
+
+Một user account cũng có thể được giao xử lý nhiều yêu cầu:
+
+```text
+user_accounts
+      1
+      |
+      | assigned_to
+      |
+      N
+maintenance_requests
+```
+
+### Relationship Summary
+
+| Relationship                     | Type                 | Foreign Key                        |
+| -------------------------------- | -------------------- | ---------------------------------- |
+| Room với Maintenance Request     | One-to-Many          | `maintenance_requests.room_id`     |
+| Tenant với Maintenance Request   | Optional One-to-Many | `maintenance_requests.tenant_id`   |
+| Creator với Maintenance Request  | One-to-Many          | `maintenance_requests.created_by`  |
+| Assignee với Maintenance Request | Optional One-to-Many | `maintenance_requests.assigned_to` |
+
+---
+
+## 29. Maintenance Request Status and Business Rules
+
+### 29.1. Pending Request
+
+Khi yêu cầu mới được tạo:
+
+```text
+status = PENDING
+```
+
+Ở trạng thái này:
+
+* Yêu cầu đang chờ landlord tiếp nhận.
+* `assigned_to` có thể chưa có giá trị.
+* `started_at` chưa được thiết lập.
+* Tenant có thể bổ sung thông tin nếu yêu cầu chưa được xử lý.
+
+### 29.2. Starting a Request
+
+Khi landlord bắt đầu xử lý:
+
+```text
+status = IN_PROGRESS
+started_at = thời điểm hiện tại
+```
+
+Trước khi chuyển sang `IN_PROGRESS`, hệ thống phải kiểm tra:
+
+* Yêu cầu đang ở trạng thái `PENDING`.
+* Người xử lý đã được xác định.
+* Yêu cầu chưa bị hủy.
+* Room và property vẫn tồn tại.
+
+### 29.3. Completing a Request
+
+Khi công việc sửa chữa hoàn thành:
+
+```text
+status = COMPLETED
+completed_at = thời điểm hiện tại
+```
+
+Hệ thống nên yêu cầu nhập `resolution_notes`.
+
+Ví dụ:
+
+```text
+Đã thay mới vòi nước và kiểm tra không còn rò rỉ.
+```
+
+Yêu cầu đã hoàn thành không được chuyển trở lại `PENDING` nếu không có quy trình mở lại riêng.
+
+### 29.4. Cancelling a Request
+
+Khi yêu cầu không cần xử lý nữa:
+
+```text
+status = CANCELLED
+cancelled_at = thời điểm hiện tại
+```
+
+Yêu cầu có thể bị hủy khi:
+
+* Tenant gửi nhầm.
+* Sự cố đã tự được giải quyết.
+* Yêu cầu bị trùng với một yêu cầu khác.
+* Landlord xác định yêu cầu không hợp lệ.
+
+Lý do hủy nên được ghi trong `resolution_notes`.
+
+### 29.5. Status Flow
+
+Luồng xử lý thông thường:
+
+```text
+PENDING
+   |
+   v
+IN_PROGRESS
+   |
+   v
+COMPLETED
+```
+
+Yêu cầu cũng có thể chuyển:
+
+```text
+PENDING ------> CANCELLED
+```
+
+hoặc:
+
+```text
+IN_PROGRESS --> CANCELLED
+```
+
+Việc hủy yêu cầu đang xử lý phải có lý do rõ ràng.
+
+### 29.6. Tenant and Room Validation
+
+Khi tenant gửi yêu cầu, Spring Boot Service phải kiểm tra:
+
+1. Tenant tồn tại.
+2. Room tồn tại.
+3. Tenant có liên quan đến hợp đồng của room.
+4. Hợp đồng hợp lệ tại thời điểm gửi yêu cầu.
+5. Tenant không gửi yêu cầu cho room của landlord khác.
+
+Việc kiểm tra này cần truy vấn nhiều bảng:
+
+```text
+tenants
+    ↓
+contract_tenants
+    ↓
+rental_contracts
+    ↓
+rooms
+```
+
+Database foreign key thông thường không thể tự kiểm tra toàn bộ quy tắc này.
+
+### 29.7. Delete Rule
+
+Maintenance request không nên bị xóa vật lý sau khi đã được xử lý.
+
+Đối với yêu cầu tạo nhầm và chưa được tiếp nhận, hệ thống có thể:
+
+* Chuyển sang `CANCELLED`.
+* Hoặc sử dụng `deleted_at` trong trường hợp thật sự cần xóa mềm.
+
+Việc giữ lịch sử giúp landlord biết:
+
+* Phòng thường gặp lỗi gì.
+* Sự cố đã được xử lý bao nhiêu lần.
+* Ai đã tạo yêu cầu.
+* Ai đã xử lý yêu cầu.
+* Thời gian xử lý mất bao lâu.
+
+### 29.8. File Attachment Rule
+
+Ảnh và tài liệu đính kèm chưa được lưu trực tiếp trong bảng `maintenance_requests`.
+
+Chức năng đính kèm ảnh sẽ được triển khai sau bằng bảng deferred:
+
+```text
+file_attachments
+```
+
+Bảng `file_attachments` có thể lưu:
+
+* Ảnh sự cố trước khi sửa.
+* Ảnh sau khi hoàn thành.
+* Hóa đơn sửa chữa.
+* Tài liệu liên quan.
+
+Database chỉ lưu thông tin và đường dẫn file, không lưu trực tiếp file ảnh lớn.
+
+---
+
+## 30. Complete Database Relationship Overview
+
+Hệ thống Rental Management System gồm 13 bảng cốt lõi.
+
+```text
+roles
+user_accounts
+user_roles
+properties
+rooms
+tenants
+rental_contracts
+contract_tenants
+utility_readings
+invoices
+invoice_items
+payments
+maintenance_requests
+```
+
+### 30.1. Complete ERD
+
+```mermaid
+erDiagram
+    USER_ACCOUNTS ||--o{ USER_ROLES : has
+    ROLES ||--o{ USER_ROLES : assigned_to
+
+    USER_ACCOUNTS ||--o{ PROPERTIES : owns
+    USER_ACCOUNTS ||--o{ TENANTS : manages
+    USER_ACCOUNTS o|--o| TENANTS : login_profile
+
+    PROPERTIES ||--o{ ROOMS : contains
+
+    ROOMS ||--o{ RENTAL_CONTRACTS : has
+    RENTAL_CONTRACTS ||--o{ CONTRACT_TENANTS : includes
+    TENANTS ||--o{ CONTRACT_TENANTS : participates
+
+    ROOMS ||--o{ UTILITY_READINGS : records
+
+    RENTAL_CONTRACTS ||--o{ INVOICES : generates
+    INVOICES ||--|{ INVOICE_ITEMS : contains
+    INVOICES ||--o{ PAYMENTS : receives
+
+    ROOMS ||--o{ MAINTENANCE_REQUESTS : has
+    TENANTS o|--o{ MAINTENANCE_REQUESTS : reports
+    USER_ACCOUNTS ||--o{ MAINTENANCE_REQUESTS : creates
+```
+
+### 30.2. Relationship Summary
+
+| Parent Table       | Child Table            | Relationship         | Foreign Key                        |
+| ------------------ | ---------------------- | -------------------- | ---------------------------------- |
+| `user_accounts`    | `user_roles`           | One-to-Many          | `user_roles.user_id`               |
+| `roles`            | `user_roles`           | One-to-Many          | `user_roles.role_id`               |
+| `user_accounts`    | `properties`           | One-to-Many          | `properties.landlord_id`           |
+| `user_accounts`    | `tenants`              | One-to-Many          | `tenants.landlord_id`              |
+| `user_accounts`    | `tenants`              | Optional One-to-One  | `tenants.user_account_id`          |
+| `properties`       | `rooms`                | One-to-Many          | `rooms.property_id`                |
+| `rooms`            | `rental_contracts`     | One-to-Many          | `rental_contracts.room_id`         |
+| `rental_contracts` | `contract_tenants`     | One-to-Many          | `contract_tenants.contract_id`     |
+| `tenants`          | `contract_tenants`     | One-to-Many          | `contract_tenants.tenant_id`       |
+| `rooms`            | `utility_readings`     | One-to-Many          | `utility_readings.room_id`         |
+| `rental_contracts` | `invoices`             | One-to-Many          | `invoices.contract_id`             |
+| `invoices`         | `invoice_items`        | One-to-Many          | `invoice_items.invoice_id`         |
+| `invoices`         | `payments`             | One-to-Many          | `payments.invoice_id`              |
+| `rooms`            | `maintenance_requests` | One-to-Many          | `maintenance_requests.room_id`     |
+| `tenants`          | `maintenance_requests` | Optional One-to-Many | `maintenance_requests.tenant_id`   |
+| `user_accounts`    | `maintenance_requests` | One-to-Many          | `maintenance_requests.created_by`  |
+| `user_accounts`    | `maintenance_requests` | Optional One-to-Many | `maintenance_requests.assigned_to` |
+
+### 30.3. Main Business Flow
+
+Luồng dữ liệu nghiệp vụ chính:
+
+```text
+Landlord User Account
+        |
+        v
+     Property
+        |
+        v
+       Room
+        |
+        v
+ Rental Contract
+        |
+        +------------------+
+        |                  |
+        v                  v
+Contract Tenants        Invoices
+        |                  |
+        v                  +------------------+
+      Tenants              |                  |
+                           v                  v
+                     Invoice Items         Payments
+```
+
+Luồng điện nước:
+
+```text
+Room
+ |
+ v
+Utility Readings
+ |
+ v
+Invoice Items
+ |
+ v
+Invoice
+```
+
+Luồng sửa chữa:
+
+```text
+Tenant hoặc Landlord
+        |
+        v
+Maintenance Request
+        |
+        v
+       Room
+```
+
+---
+
+## 31. Table Creation Order
+
+Khi tạo Flyway migration, các bảng phải được tạo theo thứ tự để foreign key luôn tham chiếu đến bảng đã tồn tại.
+
+### 31.1. Recommended Creation Order
+
+1. `roles`
+2. `user_accounts`
+3. `user_roles`
+4. `properties`
+5. `rooms`
+6. `tenants`
+7. `rental_contracts`
+8. `contract_tenants`
+9. `utility_readings`
+10. `invoices`
+11. `invoice_items`
+12. `payments`
+13. `maintenance_requests`
+
+### 31.2. Explanation of the Order
+
+#### Step 1: roles
+
+`roles` không phụ thuộc vào bảng nào khác nên được tạo đầu tiên.
+
+#### Step 2: user_accounts
+
+`user_accounts` cũng không cần foreign key đến bảng khác.
+
+#### Step 3: user_roles
+
+`user_roles` cần:
+
+* `user_accounts`
+* `roles`
+
+Vì vậy nó được tạo sau hai bảng trên.
+
+#### Step 4: properties
+
+`properties.landlord_id` tham chiếu đến `user_accounts.id`.
+
+#### Step 5: rooms
+
+`rooms.property_id` tham chiếu đến `properties.id`.
+
+#### Step 6: tenants
+
+`tenants.landlord_id` và `tenants.user_account_id` tham chiếu đến `user_accounts.id`.
+
+#### Step 7: rental_contracts
+
+`rental_contracts.room_id` tham chiếu đến `rooms.id`.
+
+#### Step 8: contract_tenants
+
+`contract_tenants` cần cả:
+
+* `rental_contracts`
+* `tenants`
+
+#### Step 9: utility_readings
+
+`utility_readings.room_id` tham chiếu đến `rooms.id`.
+
+#### Step 10: invoices
+
+`invoices.contract_id` tham chiếu đến `rental_contracts.id`.
+
+#### Step 11: invoice_items
+
+`invoice_items.invoice_id` tham chiếu đến `invoices.id`.
+
+#### Step 12: payments
+
+`payments.invoice_id` tham chiếu đến `invoices.id`.
+
+`payments.received_by` tham chiếu đến `user_accounts.id`.
+
+#### Step 13: maintenance_requests
+
+`maintenance_requests` phụ thuộc vào:
+
+* `rooms`
+* `tenants`
+* `user_accounts`
+
+Do đó bảng này có thể được tạo cuối cùng.
+
+---
+
+## 32. Initial Index Plan
+
+Index được tạo cho các cột thường xuyên dùng để tìm kiếm, lọc hoặc kết nối bảng.
+
+### 32.1. Authentication Indexes
+
+```text
+user_accounts.email
+user_accounts.status
+
+user_roles.user_id
+user_roles.role_id
+```
+
+`user_accounts.email` cần unique index để:
+
+* Ngăn email bị trùng.
+* Tăng tốc độ tìm tài khoản khi đăng nhập.
+
+### 32.2. Property and Room Indexes
+
+```text
+properties.landlord_id
+properties.status
+
+rooms.property_id
+rooms.status
+rooms(property_id, room_number)
+```
+
+Index kết hợp:
+
+```text
+(property_id, room_number)
+```
+
+giúp tìm phòng trong một property và ngăn trùng số phòng.
+
+### 32.3. Tenant Indexes
+
+```text
+tenants.landlord_id
+tenants.user_account_id
+tenants.phone
+tenants.email
+tenants.status
+tenants(landlord_id, identity_number)
+```
+
+### 32.4. Rental Contract Indexes
+
+```text
+rental_contracts.room_id
+rental_contracts.contract_code
+rental_contracts.status
+rental_contracts.start_date
+rental_contracts.end_date
+```
+
+Index trên `room_id` và `status` hỗ trợ việc tìm hợp đồng hoạt động của một phòng.
+
+### 32.5. Contract Tenant Indexes
+
+```text
+contract_tenants.contract_id
+contract_tenants.tenant_id
+```
+
+Composite primary key:
+
+```text
+(contract_id, tenant_id)
+```
+
+đã tự tạo index cho cặp khóa này.
+
+### 32.6. Utility Reading Indexes
+
+```text
+utility_readings.room_id
+utility_readings(room_id, billing_year, billing_month)
+```
+
+Index kết hợp hỗ trợ tìm chỉ số điện nước của một phòng theo kỳ.
+
+### 32.7. Invoice Indexes
+
+```text
+invoices.contract_id
+invoices.invoice_number
+invoices.status
+invoices.due_date
+invoices(contract_id, billing_year, billing_month)
+```
+
+Index `status` và `due_date` hỗ trợ tìm:
+
+* Hóa đơn chưa thanh toán.
+* Hóa đơn quá hạn.
+* Hóa đơn đến hạn.
+
+### 32.8. Invoice Item Indexes
+
+```text
+invoice_items.invoice_id
+invoice_items.item_type
+```
+
+### 32.9. Payment Indexes
+
+```text
+payments.invoice_id
+payments.payment_status
+payments.paid_at
+payments.transaction_reference
+payments.received_by
+```
+
+### 32.10. Maintenance Request Indexes
+
+```text
+maintenance_requests.room_id
+maintenance_requests.tenant_id
+maintenance_requests.created_by
+maintenance_requests.assigned_to
+maintenance_requests.status
+maintenance_requests.priority
+maintenance_requests.submitted_at
+```
+
+Index trên `status` và `priority` giúp landlord nhanh chóng tìm:
+
+* Yêu cầu đang chờ.
+* Yêu cầu khẩn cấp.
+* Yêu cầu đang được xử lý.
+
+---
+
+## 33. Data Ownership Rules
+
+Hệ thống có thể có nhiều landlord.
+
+Dữ liệu của landlord này không được hiển thị cho landlord khác.
+
+### 33.1. Property Ownership
+
+Property được xác định chủ sở hữu bởi:
+
+```text
+properties.landlord_id
+```
+
+### 33.2. Room Ownership
+
+Room không lưu `landlord_id` trực tiếp.
+
+Landlord của room được xác định thông qua:
+
+```text
+rooms
+  ↓ property_id
+properties
+  ↓ landlord_id
+user_accounts
+```
+
+### 33.3. Contract Ownership
+
+Landlord của hợp đồng được xác định thông qua:
+
+```text
+rental_contracts
+  ↓ room_id
+rooms
+  ↓ property_id
+properties
+  ↓ landlord_id
+```
+
+### 33.4. Invoice Ownership
+
+Landlord của invoice được xác định thông qua:
+
+```text
+invoices
+  ↓ contract_id
+rental_contracts
+  ↓ room_id
+rooms
+  ↓ property_id
+properties
+  ↓ landlord_id
+```
+
+### 33.5. Authorization Rule
+
+Spring Boot Service phải kiểm tra user đang đăng nhập có quyền truy cập dữ liệu trước khi:
+
+* Xem dữ liệu.
+* Cập nhật dữ liệu.
+* Xóa mềm dữ liệu.
+* Tạo dữ liệu con.
+* Thực hiện nghiệp vụ tài chính.
+
+Không được chỉ dựa vào `id` do frontend gửi lên.
+
+Ví dụ, landlord A không được sửa room của landlord B dù biết `room_id`.
+
+---
+
+## 34. Common Audit Columns
+
+Các bảng nghiệp vụ chính sử dụng các cột:
+
+```text
+created_at
+updated_at
+deleted_at
+```
+
+### 34.1. created_at
+
+Lưu thời điểm bản ghi được tạo.
+
+Giá trị này không được thay đổi sau khi bản ghi đã tồn tại.
+
+### 34.2. updated_at
+
+Lưu thời điểm bản ghi được cập nhật gần nhất.
+
+Giá trị này phải được cập nhật mỗi khi dữ liệu thay đổi.
+
+### 34.3. deleted_at
+
+Dùng cho soft delete.
+
+```text
+deleted_at IS NULL
+```
+
+nghĩa là dữ liệu vẫn đang được sử dụng.
+
+```text
+deleted_at IS NOT NULL
+```
+
+nghĩa là dữ liệu đã bị xóa mềm.
+
+### 34.4. Query Rule
+
+Các truy vấn thông thường phải bỏ qua dữ liệu đã bị xóa mềm:
+
+```sql
+WHERE deleted_at IS NULL
+```
+
+Dữ liệu đã xóa mềm chỉ được hiển thị trong chức năng lịch sử hoặc khôi phục dữ liệu nếu hệ thống hỗ trợ.
+
+---
+
+## 35. Final Database Validation Checklist
+
+Trước khi bắt đầu viết Flyway migration, thiết kế phải thỏa mãn các điều kiện sau.
+
+### Authentication
+
+* [ ] Email user account là unique.
+* [ ] Mật khẩu được lưu bằng password hash.
+* [ ] User và role được kết nối bằng `user_roles`.
+* [ ] Tài khoản bị khóa không được đăng nhập.
+
+### Property and Room
+
+* [ ] Property thuộc về một landlord.
+* [ ] Room thuộc về một property.
+* [ ] Số phòng không trùng trong cùng property.
+* [ ] Room có trạng thái rõ ràng.
+* [ ] Room đã có lịch sử không bị xóa vật lý.
+
+### Tenant and Contract
+
+* [ ] Tenant có thể tồn tại mà chưa có user account.
+* [ ] Một hợp đồng thuộc về một room.
+* [ ] Một hợp đồng có thể có nhiều tenant.
+* [ ] Một tenant có thể tham gia nhiều hợp đồng theo thời gian.
+* [ ] Mỗi hợp đồng có đúng một tenant chính khi được kích hoạt.
+* [ ] Hợp đồng cùng room không được chồng lấn thời gian.
+
+### Utility
+
+* [ ] Mỗi room chỉ có một utility reading trong một tháng.
+* [ ] Chỉ số mới không nhỏ hơn chỉ số cũ.
+* [ ] Đơn giá được lưu theo từng kỳ.
+* [ ] Utility reading đã lập hóa đơn không được tự do chỉnh sửa.
+
+### Invoice
+
+* [ ] Invoice thuộc về một rental contract.
+* [ ] Mỗi hợp đồng chỉ có một invoice chính trong một tháng.
+* [ ] Invoice có nhiều invoice item.
+* [ ] Subtotal bằng tổng amount của invoice item.
+* [ ] Total amount được tính đúng.
+* [ ] Paid amount không vượt quá total amount.
+
+### Payment
+
+* [ ] Một invoice có thể có nhiều payment.
+* [ ] Chỉ payment `COMPLETED` được tính vào paid amount.
+* [ ] Payment không vượt quá số tiền còn lại.
+* [ ] Payment đã hoàn tất không bị xóa vật lý.
+* [ ] Invoice được cập nhật trong cùng transaction với payment.
+
+### Maintenance
+
+* [ ] Maintenance request thuộc về một room.
+* [ ] Tenant có thể không tồn tại khi landlord tự tạo yêu cầu.
+* [ ] Người tạo và người xử lý được lưu riêng.
+* [ ] Thời gian bắt đầu, hoàn thành và hủy hợp lệ.
+* [ ] Yêu cầu đã xử lý được giữ lại làm lịch sử.
+
+---
+
+## 36. Physical Schema Completion Status
+
+Thiết kế vật lý ban đầu của database đã hoàn thành với 13 bảng cốt lõi:
+
+1. `roles`
+2. `user_accounts`
+3. `user_roles`
+4. `properties`
+5. `rooms`
+6. `tenants`
+7. `rental_contracts`
+8. `contract_tenants`
+9. `utility_readings`
+10. `invoices`
+11. `invoice_items`
+12. `payments`
+13. `maintenance_requests`
+
+Các bảng deferred chưa được triển khai trong MVP:
+
+* `notifications`
+* `refresh_tokens`
+* `audit_logs`
+* `file_attachments`
+* `online_payment_transactions`
+* `employees`
+* `accounting_records`
+* `chat_messages`
+
+Bước tiếp theo của dự án là:
+
+1. Khởi tạo Spring Boot backend.
+2. Cấu hình PostgreSQL.
+3. Cấu hình Flyway.
+4. Chuyển thiết kế database thành các migration SQL.
+5. Chạy migration và kiểm tra database.
+
