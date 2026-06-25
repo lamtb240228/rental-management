@@ -812,3 +812,223 @@ Quy tắc chuyển trạng thái:
 * `EXPIRED`, `TERMINATED` và `CANCELLED` là các trạng thái kết thúc.
 * Không được chuyển hợp đồng đã kết thúc trở lại `ACTIVE` nếu chưa có quy trình nghiệp vụ đặc biệt.
 
+---
+
+## 12. Contract Tenant Table
+
+### 12.1. contract_tenants
+
+Bảng `contract_tenants` là bảng trung gian kết nối `rental_contracts` với `tenants`.
+
+Bảng này cho phép:
+
+* Một rental contract có nhiều tenant.
+* Một tenant tham gia nhiều rental contract theo thời gian.
+* Xác định người thuê chính trong hợp đồng.
+* Lưu ngày chuyển vào và ngày chuyển ra của từng tenant.
+
+| Column              | PostgreSQL Type | Null | Constraint                         | Description                               |
+| ------------------- | --------------- | ---- | ---------------------------------- | ----------------------------------------- |
+| `contract_id`       | `BIGINT`        | No   | Foreign Key, Composite Primary Key | Hợp đồng mà tenant tham gia               |
+| `tenant_id`         | `BIGINT`        | No   | Foreign Key, Composite Primary Key | Người thuê tham gia hợp đồng              |
+| `is_primary_tenant` | `BOOLEAN`       | No   | Default `FALSE`                    | Tenant có phải người thuê chính hay không |
+| `move_in_date`      | `DATE`          | No   |                                    | Ngày tenant chuyển vào                    |
+| `move_out_date`     | `DATE`          | Yes  | Check constraint                   | Ngày tenant chuyển ra                     |
+| `created_at`        | `TIMESTAMPTZ`   | No   | Default current time               | Thời gian tạo liên kết                    |
+| `updated_at`        | `TIMESTAMPTZ`   | No   | Default current time               | Thời gian cập nhật                        |
+
+Composite Primary Key:
+
+`(contract_id, tenant_id)`
+
+Cặp `contract_id` và `tenant_id` được sử dụng làm khóa chính kết hợp.
+
+Foreign Keys:
+
+* `contract_id` tham chiếu đến `rental_contracts.id`.
+* `tenant_id` tham chiếu đến `tenants.id`.
+* Các foreign key sử dụng `ON DELETE RESTRICT`.
+
+Constraints:
+
+* `contract_id` không được để trống.
+* `tenant_id` không được để trống.
+* Một tenant không được thêm hai lần vào cùng một hợp đồng.
+* Một hợp đồng phải có ít nhất một tenant trước khi chuyển sang trạng thái `ACTIVE`.
+* Một hợp đồng chỉ được có tối đa một tenant chính.
+* Tenant phải thuộc phạm vi quản lý của cùng landlord với room trong hợp đồng.
+* `move_in_date` không được để trống.
+* `move_in_date` không được trước ngày bắt đầu hợp đồng.
+* `move_in_date` không được sau ngày kết thúc hợp đồng.
+* Nếu có `move_out_date`, ngày chuyển ra không được trước ngày chuyển vào.
+* Nếu có `move_out_date`, ngày chuyển ra không được sau ngày kết thúc hợp đồng.
+* Không xóa trực tiếp liên kết tenant khỏi hợp đồng đang hoạt động nếu tenant đã có lịch sử cư trú.
+* Khi tenant rời phòng, hệ thống cập nhật `move_out_date` thay vì xóa lịch sử.
+
+Constraint cơ bản cho ngày chuyển ra:
+
+```sql
+CHECK (
+    move_out_date IS NULL
+    OR move_out_date >= move_in_date
+)
+```
+
+Các quy tắc cần so sánh với ngày của bảng `rental_contracts` sẽ được kiểm tra trong Service của Spring Boot.
+
+### Primary Tenant Rule
+
+`is_primary_tenant` xác định người đại diện chính trong hợp đồng.
+
+Ví dụ:
+
+| contract_id | tenant_id | is_primary_tenant |
+| ----------: | --------: | ----------------- |
+|         100 |        20 | TRUE              |
+|         100 |        21 | FALSE             |
+|         100 |        22 | FALSE             |
+
+Tenant có `tenant_id = 20` là người thuê chính của hợp đồng `100`.
+
+Để ngăn một hợp đồng có hai tenant chính, khi viết Flyway migration sẽ sử dụng partial unique index:
+
+```sql
+CREATE UNIQUE INDEX uk_contract_tenants_primary
+ON contract_tenants(contract_id)
+WHERE is_primary_tenant = TRUE;
+```
+
+Index trên bảo đảm mỗi hợp đồng có tối đa một dòng có:
+
+```text
+is_primary_tenant = TRUE
+```
+
+Tuy nhiên, database vẫn có thể cho phép tất cả tenant đều có giá trị `FALSE`.
+
+Vì vậy, trước khi chuyển hợp đồng sang trạng thái `ACTIVE`, Spring Boot Service phải kiểm tra hợp đồng có đúng một tenant chính.
+
+### Example Data
+
+Ví dụ một hợp đồng có ba tenant:
+
+| contract_id | tenant_id | is_primary_tenant | move_in_date | move_out_date |
+| ----------: | --------: | ----------------- | ------------ | ------------- |
+|         100 |        20 | TRUE              | 2026-01-01   | NULL          |
+|         100 |        21 | FALSE             | 2026-01-01   | NULL          |
+|         100 |        22 | FALSE             | 2026-03-01   | NULL          |
+
+Dữ liệu trên có nghĩa:
+
+* Hợp đồng `100` có ba tenant.
+* Tenant `20` là người thuê chính.
+* Tenant `20` và `21` chuyển vào ngày bắt đầu hợp đồng.
+* Tenant `22` chuyển vào sau đó.
+
+Ví dụ tenant tham gia nhiều hợp đồng theo thời gian:
+
+| contract_id | tenant_id | is_primary_tenant |
+| ----------: | --------: | ----------------- |
+|         100 |        20 | TRUE              |
+|         205 |        20 | TRUE              |
+
+Tenant `20` từng tham gia hợp đồng `100` và sau đó tham gia hợp đồng `205`.
+
+---
+
+## 13. Rental Contract and Tenant Relationships
+
+Quan hệ giữa `rental_contracts`, `contract_tenants` và `tenants`:
+
+```text
+rental_contracts
+        1
+        |
+        N
+ contract_tenants
+        N
+        |
+        1
+     tenants
+```
+
+Nhìn tổng thể:
+
+```text
+rental_contracts N ↔ N tenants
+```
+
+Bảng `contract_tenants` được sử dụng để chuyển quan hệ many-to-many thành hai quan hệ one-to-many.
+
+### Rental Contract to Contract Tenant
+
+```text
+Một rental contract
+        ↓
+Nhiều contract tenant
+```
+
+* Một hợp đồng có thể có nhiều tenant.
+* Mỗi dòng `contract_tenants` chỉ thuộc về một hợp đồng.
+* Foreign key được sử dụng là `contract_tenants.contract_id`.
+
+### Tenant to Contract Tenant
+
+```text
+Một tenant
+    ↓
+Nhiều contract tenant
+```
+
+* Một tenant có thể tham gia nhiều hợp đồng theo thời gian.
+* Mỗi dòng `contract_tenants` chỉ tham chiếu đến một tenant.
+* Foreign key được sử dụng là `contract_tenants.tenant_id`.
+
+### Relationship Summary
+
+| Relationship                        | Type         | Foreign Key                    |
+| ----------------------------------- | ------------ | ------------------------------ |
+| Rental Contract với Contract Tenant | One-to-Many  | `contract_tenants.contract_id` |
+| Tenant với Contract Tenant          | One-to-Many  | `contract_tenants.tenant_id`   |
+| Rental Contract với Tenant          | Many-to-Many | Qua bảng `contract_tenants`    |
+
+---
+
+## 14. Contract Tenant Lifecycle Rules
+
+### 14.1. Adding a Tenant
+
+Tenant có thể được thêm vào hợp đồng khi:
+
+* Tenant tồn tại trong hệ thống.
+* Tenant thuộc cùng landlord quản lý hợp đồng.
+* Tenant chưa được thêm vào hợp đồng đó.
+* Số người trong phòng không vượt quá `rooms.max_occupants`.
+* Ngày chuyển vào nằm trong thời gian hiệu lực của hợp đồng.
+
+### 14.2. Removing a Tenant from a Draft Contract
+
+Nếu hợp đồng vẫn ở trạng thái `DRAFT` và chưa phát sinh dữ liệu nghiệp vụ, liên kết tenant có thể được xóa khỏi bảng `contract_tenants`.
+
+### 14.3. Tenant Leaving an Active Contract
+
+Nếu hợp đồng đang ở trạng thái `ACTIVE`, không nên xóa liên kết tenant.
+
+Hệ thống cập nhật:
+
+```text
+move_out_date = ngày tenant chuyển ra
+```
+
+Cách này giúp giữ lại lịch sử tenant từng tham gia hợp đồng.
+
+### 14.4. Activating a Contract
+
+Trước khi hợp đồng chuyển từ `DRAFT` sang `ACTIVE`, hệ thống phải kiểm tra:
+
+* Hợp đồng có ít nhất một tenant.
+* Hợp đồng có đúng một tenant chính.
+* Tất cả tenant thuộc phạm vi quản lý của landlord.
+* Số tenant đang cư trú không vượt quá `rooms.max_occupants`.
+* Ngày chuyển vào của tenant hợp lệ.
+* Room không có hợp đồng hoạt động bị chồng lấn thời gian.
