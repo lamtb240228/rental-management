@@ -122,5 +122,5 @@ Backend integration tests use Testcontainers PostgreSQL. Playwright is configure
 - File attachment tables and Cloudinary/S3 integration are deferred until the maintenance or contract attachment workflow needs them.
 - Database migration `V1__init_core_schema.sql` creates the 13 core MVP tables described in `docs/database-schema.md`.
 
-## ⚠️ **Note:** This project uses AI-assisted development to create the initial prototype and accelerate the development process. All architecture, code reviews, testing, and final implementation decisions are manually verified and refined by the author.
-
+## ⚠️ Note: 
+This branch uses AI-assisted development to create a sample prototype of the project. The purpose of this branch is to explore ideas, test implementation approaches, and support the learning process.
