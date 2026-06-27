@@ -59,7 +59,7 @@ export function MaintenancePage() {
           <CardTitle>Danh sách yêu cầu sửa chữa</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="hidden sm:block overflow-x-auto">
+          <div className="hidden overflow-x-auto sm:block">
             <Table>
               <thead>
                 <tr>
@@ -95,7 +95,7 @@ export function MaintenancePage() {
                     <Td>
                       <div className="flex flex-col gap-2">
                         <textarea
-                          className="min-h-[4rem] rounded-md border border-zinc-200 bg-white p-2 text-sm text-zinc-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                          className="min-h-[4rem] min-w-52 rounded-lg border border-zinc-200 bg-white p-2 text-sm text-zinc-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                           placeholder="Ghi chú xử lý"
                           value={notesChanges[request.id] ?? ""}
                           onChange={(event) => handleNotesChange(request.id, event.target.value)}
@@ -122,9 +122,9 @@ export function MaintenancePage() {
               </tbody>
             </Table>
           </div>
-          <div className="space-y-4 sm:hidden">
+          <div className="space-y-3 sm:hidden">
             {rows.map((request) => (
-              <div key={request.id} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 shadow-sm">
+              <div key={request.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-zinc-950">{request.title}</p>
@@ -133,12 +133,12 @@ export function MaintenancePage() {
                   <Badge>{request.priority}</Badge>
                 </div>
                 <div className="mt-4 space-y-3">
-                  <div className="rounded-2xl bg-white p-3">
-                    <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Người gửi</p>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="text-xs font-medium text-zinc-500">Người gửi</p>
                     <p className="mt-1 text-sm text-zinc-950">{request.tenantName ?? "Chủ"}</p>
                   </div>
-                  <div className="rounded-2xl bg-white p-3">
-                    <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Trạng thái</p>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="mb-2 text-xs font-medium text-zinc-500">Trạng thái</p>
                     <Select
                       value={statusChanges[request.id] ?? request.status}
                       onChange={(event) => handleStatusChange(request.id, event.target.value as MaintenanceStatus)}
@@ -150,16 +150,17 @@ export function MaintenancePage() {
                       ))}
                     </Select>
                   </div>
-                  <div className="space-y-2 rounded-2xl bg-white p-3">
-                    <label className="text-xs uppercase tracking-[0.18em] text-zinc-500">Ghi chú xử lý</label>
+                  <div className="space-y-2 rounded-xl bg-slate-50 p-3">
+                    <label className="text-xs font-medium text-zinc-500">Ghi chú xử lý</label>
                     <textarea
-                      className="min-h-[4rem] w-full rounded-md border border-zinc-200 bg-white p-2 text-sm text-zinc-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                      className="min-h-24 w-full rounded-xl border border-zinc-200 bg-white p-3 text-base text-zinc-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                       placeholder="Ghi chú xử lý"
                       value={notesChanges[request.id] ?? ""}
                       onChange={(event) => handleNotesChange(request.id, event.target.value)}
                     />
                     <Button
                       type="button"
+                      className="w-full"
                       size="sm"
                       disabled={updateStatusMutation.isPending}
                       onClick={() => submitStatus(request.id)}
@@ -171,7 +172,7 @@ export function MaintenancePage() {
               </div>
             ))}
             {!rows.length && (
-              <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
+              <div className="rounded-2xl border border-dashed border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
                 Chưa có yêu cầu sửa chữa.
               </div>
             )}

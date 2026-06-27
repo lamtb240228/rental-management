@@ -11,15 +11,15 @@ type PageHeaderProps = {
 
 export function PageHeader({ title, subtitle, description, action, className }: PageHeaderProps) {
   return (
-    <div className={cn("mb-6 rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-sm", className)}>
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className={cn("rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm sm:rounded-3xl sm:p-5", className)}>
+      <div className="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-start">
         <div className="min-w-0">
           {subtitle && <p className="text-sm font-medium text-teal-700">{subtitle}</p>}
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-950 sm:text-3xl">{title}</h1>
+          <h1 className="mt-1 break-words text-xl font-semibold leading-tight text-zinc-950 sm:text-3xl">{title}</h1>
+          {description && <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-500 sm:mt-4">{description}</p>}
         </div>
-        {action}
+        {action && <div className="w-full shrink-0 [&>*]:w-full sm:w-auto sm:[&>*]:w-auto">{action}</div>}
       </div>
-      {description && <p className="mt-4 max-w-3xl text-sm text-zinc-500">{description}</p>}
     </div>
   );
 }

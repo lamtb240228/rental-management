@@ -40,7 +40,7 @@ export function LoginPage() {
     mutation.error instanceof Error ? mutation.error.message : "Đã có lỗi xảy ra. Vui lòng thử lại.";
 
   return (
-    <main className="grid min-h-screen grid-cols-1 bg-transparent lg:grid-cols-[1.15fr_0.85fr]">
+    <main className="grid min-h-dvh grid-cols-1 bg-transparent lg:grid-cols-[1.15fr_0.85fr]">
       <section className="hidden bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.22),_transparent_32%),linear-gradient(135deg,_#08101f_0%,_#0f172a_100%)] p-10 text-white lg:flex lg:flex-col lg:justify-between">
         <div className="space-y-8">
           <div className="flex items-center gap-3 text-lg font-semibold">
@@ -67,22 +67,22 @@ export function LoginPage() {
         </div>
       </section>
 
-      <section className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6 lg:px-8">
+      <section className="flex min-h-dvh items-center justify-center px-3 py-4 sm:px-6 sm:py-10 lg:px-8">
         <div className="w-full max-w-md">
           <Card className="overflow-hidden border border-zinc-200/70 shadow-[0_24px_80px_-42px_rgba(15,23,42,0.45)]">
-            <div className="border-b border-zinc-100 bg-zinc-50 px-6 py-6">
+            <div className="border-b border-zinc-100 bg-zinc-50 px-4 py-5 sm:px-6 sm:py-6">
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-500 text-white">
                   <Building2 className="h-5 w-5" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-zinc-950">Rental Management</p>
                   <p className="text-sm text-zinc-500">Đăng nhập chủ trọ</p>
                 </div>
               </div>
             </div>
             <CardContent>
-              <h2 className="text-2xl font-semibold text-zinc-950">Chào mừng trở lại</h2>
+              <h1 className="text-2xl font-semibold text-zinc-950">Đăng nhập</h1>
               <p className="mt-2 text-sm text-zinc-500">Sử dụng email và mật khẩu để vào quản trị hệ thống nhà trọ.</p>
               <form className="mt-6 space-y-4" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
                 <div className="space-y-2">

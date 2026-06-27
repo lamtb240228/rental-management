@@ -42,12 +42,12 @@ export function TenantPortalPage() {
         description="Xem hợp đồng, hóa đơn, điện nước và gửi yêu cầu sửa chữa một cách nhanh chóng."
       />
       {portalQuery.isLoading && (
-        <div className="rounded-3xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500">
+        <div className="rounded-2xl border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500 sm:rounded-3xl sm:p-8">
           Đang tải thông tin...
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <MetricCard
           icon={Home}
           label="Phòng đang thuê"
@@ -84,7 +84,7 @@ export function TenantPortalPage() {
             <CardTitle>Hóa đơn gần đây</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="hidden sm:block overflow-x-auto">
+            <div className="hidden overflow-x-auto sm:block">
               <Table>
                 <thead>
                   <tr>
@@ -115,9 +115,9 @@ export function TenantPortalPage() {
                 </tbody>
               </Table>
             </div>
-            <div className="space-y-4 sm:hidden">
+            <div className="space-y-3 sm:hidden">
               {data?.invoices.slice(0, 6).map((invoice) => (
-                <div key={invoice.id} className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <div key={invoice.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-zinc-950 truncate">{invoice.invoiceNumber}</p>
@@ -125,20 +125,20 @@ export function TenantPortalPage() {
                     </div>
                     <Badge>{invoice.status}</Badge>
                   </div>
-                  <div className="mt-4 grid gap-3">
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Tổng tiền</p>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <div className="min-w-0 rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Tổng tiền</p>
                       <p className="mt-1 text-sm text-zinc-950">{formatCurrency(invoice.totalAmount)}</p>
                     </div>
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Đã trả</p>
+                    <div className="min-w-0 rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Đã trả</p>
                       <p className="mt-1 text-sm text-zinc-950">{formatCurrency(invoice.paidAmount)}</p>
                     </div>
                   </div>
                 </div>
               ))}
               {data?.invoices.length === 0 && (
-                <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
                   Chưa có hóa đơn
                 </div>
               )}
@@ -226,11 +226,11 @@ export function TenantPortalPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {data?.maintenanceRequests.slice(0, 5).map((item) => (
-              <div key={item.id} className="rounded-md border border-zinc-200 p-3">
+              <div key={item.id} className="rounded-xl border border-zinc-200 p-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-zinc-950">{item.title}</p>
-                    <p className="mt-1 text-sm text-zinc-500">{item.description}</p>
+                  <div className="min-w-0">
+                    <p className="break-words font-medium text-zinc-950">{item.title}</p>
+                    <p className="mt-1 break-words text-sm leading-6 text-zinc-500">{item.description}</p>
                   </div>
                   <Badge>{item.status}</Badge>
                 </div>
@@ -257,13 +257,15 @@ type MetricCardProps = {
 function MetricCard({ icon: Icon, label, value, detail, tone }: MetricCardProps) {
   return (
     <Card>
-      <CardContent className="flex min-h-28 items-center justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-sm text-zinc-500">{label}</p>
-          <p className="mt-2 truncate text-2xl font-semibold text-zinc-950">{value}</p>
+      <CardContent className="min-h-36 p-4 sm:min-h-28 sm:p-5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-50 sm:float-right">
+          <Icon className={`h-5 w-5 ${tone}`} />
+        </div>
+        <div className="mt-3 min-w-0 sm:mt-0 sm:pr-12">
+          <p className="text-xs leading-5 text-zinc-500 sm:text-sm">{label}</p>
+          <p className="mt-1 break-words text-lg font-semibold leading-tight text-zinc-950 sm:mt-2 sm:text-2xl">{value}</p>
           {detail && <p className="mt-1 truncate text-xs text-zinc-500">{detail}</p>}
         </div>
-        <Icon className={`h-7 w-7 shrink-0 ${tone}`} />
       </CardContent>
     </Card>
   );
@@ -279,7 +281,7 @@ type ReadingBlockProps = {
 
 function ReadingBlock({ icon: Icon, label, period, usage, amount }: ReadingBlockProps) {
   return (
-    <div className="rounded-md border border-zinc-200 p-4">
+    <div className="rounded-xl border border-zinc-200 p-4">
       <div className="flex items-center gap-2 text-sm font-medium text-zinc-600">
         <Icon className="h-4 w-4 text-teal-700" />
         {label} kỳ {period}

@@ -96,7 +96,7 @@ export function RoomForm({
         <Label htmlFor="room-description">Mô tả</Label>
         <Textarea id="room-description" disabled={disabled} {...form.register("description")} />
       </div>
-      <Button disabled={disabled || isSubmitting}>
+      <Button className="w-full sm:w-auto" disabled={disabled || isSubmitting}>
         <Plus className="h-4 w-4" />
         Thêm phòng
       </Button>

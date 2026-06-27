@@ -84,20 +84,20 @@ export function InvoicesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-teal-700">Quản lý hóa đơn</p>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-950">Hóa đơn</h1>
-          <p className="mt-2 text-sm text-zinc-500">Tạo hóa đơn mới và xem lịch sử hóa đơn.</p>
-        </div>
-        <Button variant="secondary" onClick={() => invoicesQuery.refetch()}>
-          <RefreshCw className="h-4 w-4" />
-          Tải lại
-        </Button>
-      </div>
+      <PageHeader
+        subtitle="Quản lý hóa đơn"
+        title="Hóa đơn"
+        description="Tạo hóa đơn mới và xem lịch sử hóa đơn."
+        action={
+          <Button variant="secondary" onClick={() => invoicesQuery.refetch()}>
+            <RefreshCw className="h-4 w-4" />
+            Tải lại
+          </Button>
+        }
+      />
 
       <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
-        <Card>
+        <Card className="order-2 xl:order-1">
           <CardHeader>
             <CardTitle>Thêm hóa đơn</CardTitle>
           </CardHeader>
@@ -164,8 +164,8 @@ export function InvoicesPage() {
                 </div>
 
                 {items.map((item, index) => (
-                  <div key={index} className="grid gap-3 rounded-3xl border border-zinc-200 p-4 sm:grid-cols-[1fr_0.9fr_0.9fr_0.8fr]">
-                    <div className="space-y-2">
+                  <div key={index} className="grid grid-cols-2 gap-3 rounded-2xl border border-zinc-200 p-3 sm:grid-cols-[1fr_0.9fr_0.9fr_0.8fr] sm:p-4">
+                    <div className="col-span-2 space-y-2 sm:col-span-1">
                       <Label>Loại</Label>
                       <Select
                         value={item.itemType}
@@ -178,7 +178,7 @@ export function InvoicesPage() {
                         ))}
                       </Select>
                     </div>
-                    <div className="space-y-2">
+                    <div className="col-span-2 space-y-2 sm:col-span-1">
                       <Label>Mô tả</Label>
                       <Input
                         value={item.description}
@@ -213,7 +213,7 @@ export function InvoicesPage() {
                 ))}
               </div>
 
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="flex items-center justify-between text-sm text-zinc-600">
                   <span>Tổng dự kiến</span>
                   <span>{formatCurrency(totalAmount)}</span>
@@ -243,12 +243,12 @@ export function InvoicesPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="order-1 xl:order-2">
           <CardHeader>
             <CardTitle>Danh sách hóa đơn</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="hidden sm:block overflow-x-auto">
+            <div className="hidden overflow-x-auto sm:block">
               <Table>
                 <thead>
                   <tr>
@@ -283,9 +283,9 @@ export function InvoicesPage() {
                 </tbody>
               </Table>
             </div>
-            <div className="space-y-4 sm:hidden">
+            <div className="space-y-3 sm:hidden">
               {(invoicesQuery.data ?? []).map((invoice) => (
-                <div key={invoice.id} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 shadow-sm">
+                <div key={invoice.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-zinc-950">{invoice.invoiceNumber}</p>
@@ -293,24 +293,24 @@ export function InvoicesPage() {
                     </div>
                     <Badge>{invoice.status}</Badge>
                   </div>
-                  <div className="mt-4 grid gap-3">
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Kỳ</p>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Kỳ</p>
                       <p className="mt-1 text-sm text-zinc-950">{invoice.billingMonth}/{invoice.billingYear}</p>
                     </div>
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Tổng</p>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Tổng</p>
                       <p className="mt-1 text-sm text-zinc-950">{formatCurrency(Number(invoice.totalAmount))}</p>
                     </div>
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Đã trả</p>
-                      <p className="mt-1 text-sm text-zinc-950">{formatCurrency(Number(invoice.paidAmount))}</p>
+                    <div className="col-span-2 rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Đã trả</p>
+                      <p className="mt-1 text-sm font-semibold text-zinc-950">{formatCurrency(Number(invoice.paidAmount))}</p>
                     </div>
                   </div>
                 </div>
               ))}
               {!invoicesQuery.data?.length && (
-                <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
                   Chưa có hóa đơn.
                 </div>
               )}

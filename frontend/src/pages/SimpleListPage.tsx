@@ -70,17 +70,17 @@ export function SimpleListPage({ title, endpoint }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-teal-700">Danh sách</p>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-950">{title}</h1>
-          {description && <p className="mt-2 text-sm text-zinc-500">{description}</p>}
-        </div>
-        <Button variant="secondary" onClick={() => query.refetch()}>
-          <RefreshCw className="h-4 w-4" />
-          Tải lại
-        </Button>
-      </div>
+      <PageHeader
+        subtitle="Danh sách"
+        title={title}
+        description={description}
+        action={
+          <Button variant="secondary" onClick={() => query.refetch()}>
+            <RefreshCw className="h-4 w-4" />
+            Tải lại
+          </Button>
+        }
+      />
 
       <Card>
         <CardHeader>
@@ -88,20 +88,20 @@ export function SimpleListPage({ title, endpoint }: Props) {
         </CardHeader>
         <CardContent>
           {query.isLoading ? (
-            <div className="rounded-3xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500">
+            <div className="rounded-2xl border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500 sm:rounded-3xl sm:p-8">
               Đang tải dữ liệu...
             </div>
           ) : errorMessage ? (
-            <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:rounded-3xl sm:p-6">
               Lỗi khi tải dữ liệu: {errorMessage}
             </div>
           ) : rows.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500">
+            <div className="rounded-2xl border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500 sm:rounded-3xl sm:p-8">
               Chưa có dữ liệu để hiển thị. Hãy tạo mục mới hoặc kiểm tra lại nguồn dữ liệu.
             </div>
           ) : (
             <>
-              <div className="hidden sm:block overflow-x-auto">
+              <div className="hidden overflow-x-auto sm:block">
                 <Table>
                   <thead>
                     <tr>
@@ -121,23 +121,23 @@ export function SimpleListPage({ title, endpoint }: Props) {
                   </tbody>
                 </Table>
               </div>
-              <div className="space-y-4 sm:hidden">
+              <div className="space-y-3 sm:hidden">
                 {rows.map((row, index) => (
-                  <div key={String(row.id ?? index)} className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div key={String(row.id ?? index)} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-zinc-950 truncate">{String(row[columns[0] ?? "id"] ?? row.id ?? `Mục ${index + 1}`)}</p>
+                        <p className="truncate text-sm font-semibold text-zinc-950">{String(row[columns[0] ?? "id"] ?? row.id ?? `Mục ${index + 1}`)}</p>
                         {labels[columns[1]] && row[columns[1]] != null && (
                           <p className="mt-1 text-sm text-zinc-500 truncate">{labels[columns[1]]}: {String(row[columns[1]])}</p>
                         )}
                       </div>
                       {typeof row.status === "string" && <Badge>{row.status}</Badge>}
                     </div>
-                    <div className="mt-4 grid gap-3">
-                      {columns.slice(0, 4).map((column) => (
-                        <div key={column} className="rounded-2xl bg-zinc-50 p-3">
-                          <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">{labels[column] ?? column}</p>
-                          <p className="mt-1 text-sm text-zinc-900">{formatCell(row[column], column)}</p>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      {columns.filter((column) => column !== columns[0] && column !== "status").slice(0, 4).map((column) => (
+                        <div key={column} className="min-w-0 rounded-xl bg-zinc-50 p-3">
+                          <p className="text-xs font-medium text-zinc-500">{labels[column] ?? column}</p>
+                          <div className="mt-1 break-words text-sm text-zinc-900">{formatCell(row[column], column)}</div>
                         </div>
                       ))}
                     </div>

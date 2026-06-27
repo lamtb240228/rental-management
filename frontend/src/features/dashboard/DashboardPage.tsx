@@ -24,26 +24,26 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-teal-100 bg-gradient-to-r from-teal-600 via-emerald-500 to-cyan-500 p-6 text-white shadow-lg">
+      <div className="rounded-2xl border border-teal-100 bg-gradient-to-r from-teal-600 via-emerald-500 to-cyan-500 p-4 text-white shadow-lg sm:rounded-3xl sm:p-6">
         <p className="text-sm font-medium text-teal-50">Chủ trọ</p>
-        <h1 className="mt-1 text-2xl font-semibold">Dashboard vận hành</h1>
-        <p className="mt-2 max-w-2xl text-sm text-teal-50/90">
+        <h1 className="mt-1 text-xl font-semibold sm:text-2xl">Dashboard vận hành</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-teal-50/90">
           Theo dõi tình trạng phòng trọ, công việc cần xử lý và hiệu suất sử dụng một cách rõ ràng.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
         {statMeta.map((item) => (
-          <Card key={item.key} className="overflow-hidden">
-            <CardContent className="flex min-h-28 items-center justify-between gap-4">
-              <div>
-                <p className="text-sm text-zinc-500">{item.label}</p>
-                <p className="mt-2 text-3xl font-semibold text-zinc-950">
+          <Card key={item.key} className="overflow-hidden last:col-span-2 xl:last:col-span-1">
+            <CardContent className="flex min-h-24 items-center justify-between gap-2 p-4 sm:min-h-28 sm:gap-4 sm:p-5">
+              <div className="min-w-0">
+                <p className="text-xs leading-5 text-zinc-500 sm:text-sm">{item.label}</p>
+                <p className="mt-1 text-2xl font-semibold text-zinc-950 sm:mt-2 sm:text-3xl">
                   {summaryQuery.data ? summaryQuery.data[item.key] : 0}
                 </p>
               </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-50">
-                <item.icon className={`h-6 w-6 ${item.color}`} />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-50 sm:h-12 sm:w-12 sm:rounded-2xl">
+                <item.icon className={`h-5 w-5 sm:h-6 sm:w-6 ${item.color}`} />
               </div>
             </CardContent>
           </Card>
@@ -57,7 +57,7 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="flex items-end gap-3">
-              <p className="text-5xl font-semibold text-zinc-950">{occupancyRate}%</p>
+              <p className="text-4xl font-semibold text-zinc-950 sm:text-5xl">{occupancyRate}%</p>
               <TrendingUp className="mb-2 h-6 w-6 text-teal-700" />
             </div>
             <div className="mt-5 h-3 overflow-hidden rounded-full bg-zinc-100">

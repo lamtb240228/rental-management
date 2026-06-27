@@ -125,7 +125,7 @@ export function ContractsPage() {
       />
 
       <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
-        <Card>
+        <Card className="order-2 xl:order-1">
           <CardHeader>
             <CardTitle>Thêm hợp đồng</CardTitle>
           </CardHeader>
@@ -225,7 +225,7 @@ export function ContractsPage() {
                 <Label>Người thuê</Label>
                 <div className="grid gap-2">
                   {tenantOptions.map((tenant) => (
-                    <label key={tenant.id} className="flex items-center gap-2 rounded-xl border border-zinc-200 p-3">
+                    <label key={tenant.id} className="flex min-h-12 touch-manipulation items-center gap-3 rounded-xl border border-zinc-200 p-3">
                       <input
                         type="checkbox"
                         checked={form.tenantIds.includes(tenant.id)}
@@ -276,12 +276,12 @@ export function ContractsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="order-1 xl:order-2">
           <CardHeader>
             <CardTitle>Danh sách hợp đồng</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="hidden sm:block overflow-x-auto">
+            <div className="hidden overflow-x-auto sm:block">
               <Table>
                 <thead>
                   <tr>
@@ -316,9 +316,9 @@ export function ContractsPage() {
                 </tbody>
               </Table>
             </div>
-            <div className="space-y-4 sm:hidden">
+            <div className="space-y-3 sm:hidden">
               {(contractsQuery.data ?? []).map((contract) => (
-                <div key={contract.id} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 shadow-sm">
+                <div key={contract.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-zinc-950">{contract.contractCode}</p>
@@ -326,24 +326,24 @@ export function ContractsPage() {
                     </div>
                     <Badge>{contract.status}</Badge>
                   </div>
-                  <div className="mt-4 grid gap-3">
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Bắt đầu</p>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Bắt đầu</p>
                       <p className="mt-1 text-sm text-zinc-950">{contract.startDate}</p>
                     </div>
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Kết thúc</p>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Kết thúc</p>
                       <p className="mt-1 text-sm text-zinc-950">{contract.endDate ?? "—"}</p>
                     </div>
-                    <div className="rounded-2xl bg-white p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Giá thuê</p>
-                      <p className="mt-1 text-sm text-zinc-950">{formatCurrency(Number(contract.monthlyRent))}</p>
+                    <div className="col-span-2 rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Giá thuê</p>
+                      <p className="mt-1 text-sm font-semibold text-zinc-950">{formatCurrency(Number(contract.monthlyRent))}</p>
                     </div>
                   </div>
                 </div>
               ))}
               {!contractsQuery.data?.length && (
-                <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
                   Chưa có hợp đồng.
                 </div>
               )}

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Building2, DoorOpen, ReceiptText, ShieldCheck, UserCog, Users, Wrench } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { PageHeader } from "../../components/ui/page-header";
 import { Table, Td, Th } from "../../components/ui/table";
 import { getAdminSummary, listAdminUsers } from "./adminApi";
 
@@ -21,22 +22,25 @@ export function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-sm font-medium text-teal-700">Quản trị hệ thống</p>
-        <h1 className="mt-1 text-2xl font-semibold text-zinc-950">Tổng quan dữ liệu</h1>
-      </div>
+      <PageHeader
+        subtitle="Quản trị hệ thống"
+        title="Tổng quan dữ liệu"
+        description="Theo dõi nhanh tài khoản, khu trọ, phòng và hoạt động trong hệ thống."
+      />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {stats.map((item) => (
-          <Card key={item.key}>
-            <CardContent className="flex min-h-28 items-center justify-between gap-4">
-              <div>
-                <p className="text-sm text-zinc-500">{item.label}</p>
-                <p className="mt-2 text-3xl font-semibold text-zinc-950">
+          <Card key={item.key} className="last:col-span-2">
+            <CardContent className="flex min-h-24 items-center justify-between gap-2 p-4 sm:min-h-28 sm:gap-4 sm:p-5">
+              <div className="min-w-0">
+                <p className="text-xs leading-5 text-zinc-500 sm:text-sm">{item.label}</p>
+                <p className="mt-1 text-2xl font-semibold text-zinc-950 sm:mt-2 sm:text-3xl">
                   {summaryQuery.data ? summaryQuery.data[item.key] : 0}
                 </p>
               </div>
-              <item.icon className={`h-7 w-7 ${item.className}`} />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-50">
+                <item.icon className={`h-5 w-5 sm:h-6 sm:w-6 ${item.className}`} />
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -47,7 +51,7 @@ export function AdminDashboardPage() {
           <CardTitle>Tài khoản trong hệ thống</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto sm:block">
             <Table>
               <thead>
                 <tr>
@@ -81,6 +85,42 @@ export function AdminDashboardPage() {
                 ))}
               </tbody>
             </Table>
+          </div>
+          <div className="space-y-3 sm:hidden">
+            {usersQuery.data?.map((user) => (
+              <div key={user.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-zinc-950">{user.fullName}</p>
+                    <p className="mt-1 break-all text-xs text-zinc-500">{user.email}</p>
+                  </div>
+                  <Badge>{user.status}</Badge>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="min-w-0 rounded-xl bg-slate-50 p-3">
+                    <p className="text-xs font-medium text-zinc-500">Vai trò</p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {user.roles.map((role) => <Badge key={role}>{role}</Badge>)}
+                    </div>
+                  </div>
+                  <div className="min-w-0 rounded-xl bg-slate-50 p-3">
+                    <p className="text-xs font-medium text-zinc-500">Điện thoại</p>
+                    <p className="mt-1 break-words text-sm text-zinc-950">{user.phone ?? "—"}</p>
+                  </div>
+                  <div className="col-span-2 rounded-xl bg-slate-50 p-3">
+                    <p className="text-xs font-medium text-zinc-500">Đăng nhập gần nhất</p>
+                    <p className="mt-1 text-sm text-zinc-950">
+                      {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString("vi-VN") : "Chưa có"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {usersQuery.data?.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500">
+                Chưa có tài khoản.
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

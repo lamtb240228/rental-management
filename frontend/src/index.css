@@ -14,12 +14,16 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top left, rgba(45, 212, 191, 0.16), transparent 26%),
     radial-gradient(circle at top right, rgba(129, 140, 248, 0.14), transparent 24%),
@@ -43,4 +47,11 @@ textarea {
 
 #root {
   min-height: 100vh;
+}
+
+@supports (min-height: 100dvh) {
+  body,
+  #root {
+    min-height: 100dvh;
+  }
 }

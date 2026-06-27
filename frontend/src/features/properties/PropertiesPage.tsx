@@ -1,9 +1,10 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { DoorOpen, Home, RefreshCw } from "lucide-react";
+import { Home, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { PageHeader } from "../../components/ui/page-header";
 import { Table, Td, Th } from "../../components/ui/table";
 import { queryClient } from "../../lib/query-client/queryClient";
 import { cn, formatCurrency } from "../../lib/utils";
@@ -48,20 +49,21 @@ export function PropertiesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-teal-700">Tài sản cho thuê</p>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-950">Khu trọ và phòng</h1>
-        </div>
-        <Button variant="secondary" onClick={() => propertiesQuery.refetch()}>
-          <RefreshCw className="h-4 w-4" />
-          Tải lại
-        </Button>
-      </div>
+      <PageHeader
+        subtitle="Tài sản cho thuê"
+        title="Khu trọ và phòng"
+        description="Quản lý các khu trọ, theo dõi phòng và thêm phòng mới."
+        action={
+          <Button variant="secondary" onClick={() => propertiesQuery.refetch()}>
+            <RefreshCw className="h-4 w-4" />
+            Tải lại
+          </Button>
+        }
+      />
 
       <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
-        <div className="space-y-5">
-          <Card>
+        <div className="contents xl:block xl:space-y-5">
+          <Card className="order-3">
             <CardHeader>
               <CardTitle>Thêm khu trọ</CardTitle>
             </CardHeader>
@@ -73,7 +75,7 @@ export function PropertiesPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="order-1">
             <CardHeader>
               <CardTitle>Danh sách khu trọ</CardTitle>
             </CardHeader>
@@ -82,7 +84,7 @@ export function PropertiesPage() {
                 <button
                   key={property.id}
                   className={cn(
-                    "flex w-full items-start gap-3 rounded-md border border-zinc-200 p-3 text-left transition hover:bg-zinc-50",
+                    "flex min-h-14 w-full touch-manipulation items-start gap-3 rounded-xl border border-zinc-200 p-3 text-left transition hover:bg-zinc-50",
                     selectedPropertyId === property.id && "border-teal-500 bg-teal-50",
                   )}
                   onClick={() => setSelectedPropertyId(property.id)}
@@ -100,38 +102,15 @@ export function PropertiesPage() {
           </Card>
         </div>
 
-        <div className="space-y-5">
-          <Card>
+        <div className="contents xl:block xl:space-y-5">
+          <Card className="order-2">
             <CardHeader>
               <CardTitle>{selectedProperty ? selectedProperty.name : "Phòng"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-3 sm:hidden">
                 {rooms.map((room) => (
-                  <div key={room.id} className="rounded-md border border-zinc-200 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <DoorOpen className="h-4 w-4 text-teal-700" />
-                        <p className="font-semibold text-zinc-950">Phòng {room.roomNumber}</p>
-                      </div>
-                      <Badge>{room.status}</Badge>
-                    </div>
-                    <p className="mt-3 text-2xl font-semibold text-zinc-950">{formatCurrency(room.monthlyRent)}</p>
-                    <p className="mt-1 text-sm text-zinc-500">
-                      {room.area} m2 · tối đa {room.maxOccupants} người
-                    </p>
-                  </div>
-                ))}
-                {selectedPropertyId && rooms.length === 0 && (
-                  <div className="rounded-md border border-dashed border-zinc-300 p-6 text-sm text-zinc-500">
-                    Chưa có phòng
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-4 sm:hidden">
-                {rooms.map((room) => (
-                  <div key={room.id} className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div key={room.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-zinc-950">Phòng {room.roomNumber}</p>
@@ -139,20 +118,20 @@ export function PropertiesPage() {
                       </div>
                       <Badge>{room.status}</Badge>
                     </div>
-                    <div className="mt-4 rounded-2xl bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Giá thuê</p>
+                    <div className="mt-4 rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Giá thuê</p>
                       <p className="mt-1 text-sm font-semibold text-zinc-950">{formatCurrency(room.monthlyRent)}</p>
                     </div>
                   </div>
                 ))}
                 {selectedPropertyId && rooms.length === 0 && (
-                  <div className="rounded-3xl border border-dashed border-zinc-300 bg-white p-6 text-center text-sm text-zinc-500">
+                  <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-6 text-center text-sm text-zinc-500">
                     Chưa có phòng
                   </div>
                 )}
               </div>
 
-              <div className="hidden sm:block overflow-x-auto">
+              <div className="hidden overflow-x-auto sm:block">
                 <Table>
                   <thead>
                     <tr>
@@ -181,7 +160,7 @@ export function PropertiesPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="order-4">
             <CardHeader>
               <CardTitle>Thêm phòng</CardTitle>
             </CardHeader>

@@ -40,7 +40,7 @@ export function RegisterPage() {
     mutation.error instanceof Error ? mutation.error.message : "Đã có lỗi xảy ra. Vui lòng thử lại.";
 
   return (
-    <main className="grid min-h-screen gap-10 bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.18),_transparent_28%),linear-gradient(135deg,_#f8fafc_0%,_#eff6ff_100%)] px-4 py-10 sm:px-6 lg:grid-cols-[0.95fr_0.85fr]">
+    <main className="grid min-h-dvh gap-10 bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.18),_transparent_28%),linear-gradient(135deg,_#f8fafc_0%,_#eff6ff_100%)] px-3 py-4 sm:px-6 sm:py-10 lg:grid-cols-[0.95fr_0.85fr]">
       <section className="hidden rounded-[2rem] bg-zinc-950/95 p-10 text-white shadow-2xl ring-1 ring-white/10 backdrop-blur lg:block">
         <div className="space-y-8">
           <div className="flex items-center gap-3 text-lg font-semibold">
@@ -66,14 +66,14 @@ export function RegisterPage() {
       <section className="flex items-center justify-center">
         <div className="w-full max-w-lg">
           <Card className="overflow-hidden border border-zinc-200/70 shadow-[0_24px_80px_-42px_rgba(15,23,42,0.45)]">
-            <div className="border-b border-zinc-100 bg-zinc-50 px-6 py-6">
+            <div className="border-b border-zinc-100 bg-zinc-50 px-4 py-5 sm:px-6 sm:py-6">
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-500 text-white">
                   <Building2 className="h-5 w-5" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-zinc-950">Đăng ký tài khoản chủ trọ</p>
-                  <p className="text-sm text-zinc-500">Tạo tài khoản mới để bắt đầu quản lý.</p>
+                  <p className="mt-0.5 text-xs text-zinc-500 sm:text-sm">Tạo tài khoản mới để bắt đầu quản lý.</p>
                 </div>
               </div>
             </div>
@@ -90,7 +90,7 @@ export function RegisterPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone">Số điện thoại</Label>
-                    <Input id="phone" {...form.register("phone")} />
+                    <Input id="phone" type="tel" autoComplete="tel" {...form.register("phone")} />
                   </div>
                 </div>
                 <div className="space-y-2">

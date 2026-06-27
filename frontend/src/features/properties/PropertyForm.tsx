@@ -72,7 +72,7 @@ export function PropertyForm({
         <Label htmlFor="description">Mô tả</Label>
         <Textarea id="description" {...form.register("description")} />
       </div>
-      <Button disabled={isSubmitting}>
+      <Button className="w-full sm:w-auto" disabled={isSubmitting}>
         <Plus className="h-4 w-4" />
         Thêm khu trọ
       </Button>

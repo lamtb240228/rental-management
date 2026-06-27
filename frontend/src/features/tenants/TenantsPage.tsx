@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { PageHeader } from "../../components/ui/page-header";
 import { Select } from "../../components/ui/select";
 import { Table, Td, Th } from "../../components/ui/table";
 import { Textarea } from "../../components/ui/textarea";
@@ -46,19 +47,20 @@ export function TenantsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-teal-700">Quản lý thuê phòng</p>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-950">Quản lý người thuê</h1>
-        </div>
-        <Button variant="secondary" onClick={() => tenantsQuery.refetch()}>
-          <RefreshCw className="h-4 w-4" />
-          Tải lại
-        </Button>
-      </div>
+      <PageHeader
+        subtitle="Quản lý thuê phòng"
+        title="Quản lý người thuê"
+        description="Lưu thông tin liên hệ và theo dõi trạng thái của người thuê."
+        action={
+          <Button variant="secondary" onClick={() => tenantsQuery.refetch()}>
+            <RefreshCw className="h-4 w-4" />
+            Tải lại
+          </Button>
+        }
+      />
 
       <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
-        <Card>
+        <Card className="order-2 xl:order-1">
           <CardHeader>
             <CardTitle>Thêm người thuê</CardTitle>
           </CardHeader>
@@ -125,12 +127,12 @@ export function TenantsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="order-1 xl:order-2">
           <CardHeader>
             <CardTitle>Danh sách người thuê</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="hidden sm:block overflow-x-auto">
+            <div className="hidden overflow-x-auto sm:block">
               <Table>
                 <thead>
                   <tr>
@@ -163,30 +165,30 @@ export function TenantsPage() {
                 </tbody>
               </Table>
             </div>
-            <div className="space-y-4 sm:hidden">
+            <div className="space-y-3 sm:hidden">
               {(tenantsQuery.data ?? []).map((tenant) => (
-                <div key={tenant.id} className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <div key={tenant.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-zinc-950 truncate">{tenant.fullName}</p>
-                      <p className="mt-1 text-xs text-zinc-500 truncate">{tenant.email ?? "Không có email"}</p>
+                      <p className="truncate text-sm font-semibold text-zinc-950">{tenant.fullName}</p>
+                      <p className="mt-1 break-all text-xs text-zinc-500">{tenant.email ?? "Không có email"}</p>
                     </div>
                     <Badge>{tenant.status}</Badge>
                   </div>
-                  <div className="mt-4 grid gap-3">
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Điện thoại</p>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <div className="min-w-0 rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">Điện thoại</p>
                       <p className="mt-1 text-sm text-zinc-950">{tenant.phone ?? "—"}</p>
                     </div>
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">CCCD</p>
-                      <p className="mt-1 text-sm text-zinc-950">{tenant.identityNumber ?? "—"}</p>
+                    <div className="min-w-0 rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-zinc-500">CCCD</p>
+                      <p className="mt-1 break-all text-sm text-zinc-950">{tenant.identityNumber ?? "—"}</p>
                     </div>
                   </div>
                 </div>
               ))}
               {!tenantsQuery.data?.length && (
-                <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
                   Chưa có người thuê
                 </div>
               )}
