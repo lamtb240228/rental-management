@@ -1,0 +1,13 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+app:
+  jwt:
+    secret: test-secret-change-this-value-to-at-least-32-characters
+    expiration-minutes: 60
+  cors:
+    allowed-origins: http://localhost:5173
