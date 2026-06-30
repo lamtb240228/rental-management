@@ -8,6 +8,8 @@ vi.mock("./propertyApi", () => ({
   listRooms: async () => [],
   createProperty: vi.fn(),
   createRoom: vi.fn(),
+  updateProperty: vi.fn(),
+  updateRoom: vi.fn(),
 }));
 
 describe("PropertiesPage", () => {

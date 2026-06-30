@@ -6,6 +6,8 @@ import { TenantsPage } from "./TenantsPage";
 vi.mock("./tenantApi", () => ({
   listTenants: async () => [],
   createTenant: vi.fn(),
+  updateTenant: vi.fn(),
+  listTenantContracts: async () => [],
 }));
 
 describe("TenantsPage", () => {
@@ -17,7 +19,7 @@ describe("TenantsPage", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText("Quản lý người thuê")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Người thuê" })).toBeInTheDocument();
     expect(screen.getByText("Thêm người thuê")).toBeInTheDocument();
   });
 });
