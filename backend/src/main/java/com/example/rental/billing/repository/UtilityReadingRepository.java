@@ -14,4 +14,11 @@ public interface UtilityReadingRepository extends JpaRepository<UtilityReading, 
     Optional<UtilityReading> findByIdAndRoomPropertyLandlordIdAndDeletedAtIsNull(Long id, Long landlordId);
 
     boolean existsByRoomIdAndBillingYearAndBillingMonthAndDeletedAtIsNull(Long roomId, Integer year, Integer month);
+
+    boolean existsByRoomIdAndBillingYearAndBillingMonthAndIdNotAndDeletedAtIsNull(
+        Long roomId,
+        Integer year,
+        Integer month,
+        Long id
+    );
 }

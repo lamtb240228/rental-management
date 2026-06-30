@@ -8,4 +8,6 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     List<Payment> findByInvoiceIdAndDeletedAtIsNullOrderByPaidAtDesc(Long invoiceId);
 
     List<Payment> findDistinctByInvoiceContractTenantsTenantUserAccountIdAndDeletedAtIsNullOrderByPaidAtDesc(Long userAccountId);
+
+    boolean existsByTransactionReferenceAndDeletedAtIsNull(String transactionReference);
 }

@@ -4,6 +4,8 @@ import com.example.rental.common.response.ApiResponse;
 import com.example.rental.tenant.dto.TenantRequest;
 import com.example.rental.tenant.dto.TenantResponse;
 import com.example.rental.tenant.service.TenantService;
+import com.example.rental.contract.dto.ContractResponse;
+import com.example.rental.contract.service.ContractService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -21,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 @PreAuthorize("hasRole('LANDLORD')")
 public class TenantController {
     private final TenantService tenantService;
+    private final ContractService contractService;
 
-    public TenantController(TenantService tenantService) {
+    public TenantController(TenantService tenantService, ContractService contractService) {
         this.tenantService = tenantService;
+        this.contractService = contractService;
     }
 
     @GetMapping
@@ -39,6 +43,11 @@ public class TenantController {
     @GetMapping("/{id}")
     ApiResponse<TenantResponse> get(@PathVariable Long id) {
         return ApiResponse.of(tenantService.get(id));
+    }
+
+    @GetMapping("/{id}/contracts")
+    ApiResponse<List<ContractResponse>> contracts(@PathVariable Long id) {
+        return ApiResponse.of(contractService.listByTenant(id));
     }
 
     @PutMapping("/{id}")

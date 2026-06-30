@@ -3,6 +3,9 @@ package com.example.rental.property.service;
 import com.example.rental.common.exception.ConflictException;
 import com.example.rental.common.exception.NotFoundException;
 import com.example.rental.common.security.CurrentUserService;
+import com.example.rental.common.exception.BadRequestException;
+import com.example.rental.contract.entity.ContractStatus;
+import com.example.rental.contract.repository.RentalContractRepository;
 import com.example.rental.property.dto.RoomRequest;
 import com.example.rental.property.dto.RoomResponse;
 import com.example.rental.property.entity.Property;
@@ -18,15 +21,18 @@ public class RoomService {
     private final RoomRepository roomRepository;
     private final PropertyService propertyService;
     private final CurrentUserService currentUserService;
+    private final RentalContractRepository contractRepository;
 
     public RoomService(
         RoomRepository roomRepository,
         PropertyService propertyService,
-        CurrentUserService currentUserService
+        CurrentUserService currentUserService,
+        RentalContractRepository contractRepository
     ) {
         this.roomRepository = roomRepository;
         this.propertyService = propertyService;
         this.currentUserService = currentUserService;
+        this.contractRepository = contractRepository;
     }
 
     @Transactional(readOnly = true)
@@ -71,6 +77,9 @@ public class RoomService {
     @Transactional
     public void delete(Long id) {
         Room room = getOwnedRoom(id);
+        if (contractRepository.existsByRoomIdAndStatusAndDeletedAtIsNull(id, ContractStatus.ACTIVE)) {
+            throw new BadRequestException("Cannot remove a room with an active contract");
+        }
         room.softDelete();
     }
 

@@ -38,10 +38,7 @@ public class UtilityReadingService {
     @Transactional
     public UtilityReadingResponse create(Long roomId, UtilityReadingRequest request) {
         Room room = roomService.getOwnedRoom(roomId);
-        if (request.electricityNewReading().compareTo(request.electricityOldReading()) < 0
-            || request.waterNewReading().compareTo(request.waterOldReading()) < 0) {
-            throw new BadRequestException("New readings must be greater than or equal to old readings");
-        }
+        validateReadings(request);
         if (repository.existsByRoomIdAndBillingYearAndBillingMonthAndDeletedAtIsNull(roomId, request.billingYear(), request.billingMonth())) {
             throw new ConflictException("Utility reading already exists for this room and period");
         }
@@ -57,8 +54,20 @@ public class UtilityReadingService {
     public UtilityReadingResponse update(Long id, UtilityReadingRequest request) {
         UtilityReading reading = repository.findByIdAndRoomPropertyLandlordIdAndDeletedAtIsNull(id, currentUserService.currentUserId())
             .orElseThrow(() -> new NotFoundException("Utility reading not found"));
+        validateReadings(request);
+        if (repository.existsByRoomIdAndBillingYearAndBillingMonthAndIdNotAndDeletedAtIsNull(
+            reading.getRoom().getId(), request.billingYear(), request.billingMonth(), reading.getId())) {
+            throw new ConflictException("Utility reading already exists for this room and period");
+        }
         apply(reading, request);
         return toResponse(reading);
+    }
+
+    private void validateReadings(UtilityReadingRequest request) {
+        if (request.electricityNewReading().compareTo(request.electricityOldReading()) < 0
+            || request.waterNewReading().compareTo(request.waterOldReading()) < 0) {
+            throw new BadRequestException("New readings must be greater than or equal to old readings");
+        }
     }
 
     private void apply(UtilityReading reading, UtilityReadingRequest request) {

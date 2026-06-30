@@ -7,6 +7,7 @@ import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.AccountStatusException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -26,6 +27,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BadCredentialsException.class)
     ResponseEntity<ErrorResponse> handleBadCredentials(BadCredentialsException exception, HttpServletRequest request) {
         return build(HttpStatus.UNAUTHORIZED, "Email or password is incorrect", request, null);
+    }
+
+    @ExceptionHandler(AccountStatusException.class)
+    ResponseEntity<ErrorResponse> handleAccountStatus(AccountStatusException exception, HttpServletRequest request) {
+        return build(HttpStatus.UNAUTHORIZED, "Account is inactive or locked", request, null);
     }
 
     @ExceptionHandler(AccessDeniedException.class)

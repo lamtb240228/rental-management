@@ -94,8 +94,10 @@ public class MaintenanceService {
     public MaintenanceRequestResponse updateStatus(Long id, MaintenanceStatusUpdateRequest request) {
         MaintenanceRequest maintenanceRequest = repository.findByIdAndRoomPropertyLandlordIdAndDeletedAtIsNull(
             id, currentUserService.currentUserId()).orElseThrow(() -> new NotFoundException("Maintenance request not found"));
-        if (maintenanceRequest.getStatus() == MaintenanceStatus.CANCELLED && request.status() == MaintenanceStatus.IN_PROGRESS) {
-            throw new BadRequestException("Cancelled request cannot be moved to in progress");
+        if ((maintenanceRequest.getStatus() == MaintenanceStatus.CANCELLED
+            || maintenanceRequest.getStatus() == MaintenanceStatus.COMPLETED)
+            && request.status() != maintenanceRequest.getStatus()) {
+            throw new BadRequestException("A completed or cancelled request cannot be reopened");
         }
         maintenanceRequest.setStatus(request.status());
         maintenanceRequest.setResolutionNotes(request.resolutionNotes());

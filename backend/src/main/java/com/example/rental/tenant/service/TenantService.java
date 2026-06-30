@@ -3,6 +3,9 @@ package com.example.rental.tenant.service;
 import com.example.rental.common.exception.ConflictException;
 import com.example.rental.common.exception.NotFoundException;
 import com.example.rental.common.security.CurrentUserService;
+import com.example.rental.common.exception.BadRequestException;
+import com.example.rental.contract.entity.ContractStatus;
+import com.example.rental.contract.repository.RentalContractRepository;
 import com.example.rental.tenant.dto.TenantRequest;
 import com.example.rental.tenant.dto.TenantResponse;
 import com.example.rental.tenant.entity.Tenant;
@@ -20,15 +23,18 @@ public class TenantService {
     private final TenantRepository tenantRepository;
     private final UserAccountRepository userAccountRepository;
     private final CurrentUserService currentUserService;
+    private final RentalContractRepository contractRepository;
 
     public TenantService(
         TenantRepository tenantRepository,
         UserAccountRepository userAccountRepository,
-        CurrentUserService currentUserService
+        CurrentUserService currentUserService,
+        RentalContractRepository contractRepository
     ) {
         this.tenantRepository = tenantRepository;
         this.userAccountRepository = userAccountRepository;
         this.currentUserService = currentUserService;
+        this.contractRepository = contractRepository;
     }
 
     @Transactional(readOnly = true)
@@ -68,7 +74,11 @@ public class TenantService {
 
     @Transactional
     public void delete(Long id) {
-        getOwnedTenant(id).softDelete();
+        Tenant tenant = getOwnedTenant(id);
+        if (contractRepository.existsDistinctByTenantsTenantIdAndStatusAndDeletedAtIsNull(id, ContractStatus.ACTIVE)) {
+            throw new BadRequestException("Cannot remove a tenant with an active contract");
+        }
+        tenant.softDelete();
     }
 
     public Tenant getOwnedTenant(Long id) {

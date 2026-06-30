@@ -11,7 +11,16 @@ public interface RentalContractRepository extends JpaRepository<RentalContract, 
 
     List<RentalContract> findDistinctByTenantsTenantUserAccountIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long userAccountId);
 
+    List<RentalContract> findDistinctByTenantsTenantIdAndRoomPropertyLandlordIdAndDeletedAtIsNullOrderByCreatedAtDesc(
+        Long tenantId,
+        Long landlordId
+    );
+
     Optional<RentalContract> findByIdAndRoomPropertyLandlordIdAndDeletedAtIsNull(Long id, Long landlordId);
 
     boolean existsByRoomIdAndStatusAndDeletedAtIsNull(Long roomId, ContractStatus status);
+
+    boolean existsByRoomPropertyIdAndStatusAndDeletedAtIsNull(Long propertyId, ContractStatus status);
+
+    boolean existsDistinctByTenantsTenantIdAndStatusAndDeletedAtIsNull(Long tenantId, ContractStatus status);
 }

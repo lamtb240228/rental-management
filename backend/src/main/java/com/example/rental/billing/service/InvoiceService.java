@@ -10,6 +10,7 @@ import com.example.rental.billing.entity.InvoiceStatus;
 import com.example.rental.billing.repository.InvoiceRepository;
 import com.example.rental.common.exception.ConflictException;
 import com.example.rental.common.exception.NotFoundException;
+import com.example.rental.common.exception.BadRequestException;
 import com.example.rental.common.security.CurrentUserService;
 import com.example.rental.contract.entity.RentalContract;
 import com.example.rental.contract.service.ContractService;
@@ -32,17 +33,20 @@ public class InvoiceService {
         this.currentUserService = currentUserService;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<InvoiceResponse> listMine() {
         return invoiceRepository.findByContractRoomPropertyLandlordIdAndDeletedAtIsNullOrderByCreatedAtDesc(currentUserService.currentUserId())
             .stream()
+            .peek(Invoice::updatePaymentStatus)
             .map(this::toResponse)
             .toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public InvoiceResponse get(Long id) {
-        return toResponse(getOwnedInvoice(id));
+        Invoice invoice = getOwnedInvoice(id);
+        invoice.updatePaymentStatus();
+        return toResponse(invoice);
     }
 
     @Transactional
@@ -67,6 +71,19 @@ public class InvoiceService {
         invoice.setStatus(InvoiceStatus.UNPAID);
         invoice.recalculateTotals();
         invoiceRepository.save(invoice);
+        return toResponse(invoice);
+    }
+
+    @Transactional
+    public InvoiceResponse cancel(Long id) {
+        Invoice invoice = getOwnedInvoice(id);
+        if (invoice.getPaidAmount().signum() > 0) {
+            throw new BadRequestException("A paid or partially paid invoice cannot be cancelled");
+        }
+        if (invoice.getStatus() == InvoiceStatus.CANCELLED) {
+            throw new BadRequestException("Invoice is already cancelled");
+        }
+        invoice.setStatus(InvoiceStatus.CANCELLED);
         return toResponse(invoice);
     }
 

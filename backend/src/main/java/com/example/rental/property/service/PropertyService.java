@@ -2,6 +2,11 @@ package com.example.rental.property.service;
 
 import com.example.rental.common.exception.NotFoundException;
 import com.example.rental.common.security.CurrentUserService;
+import com.example.rental.common.exception.BadRequestException;
+import com.example.rental.contract.entity.ContractStatus;
+import com.example.rental.contract.repository.RentalContractRepository;
+import com.example.rental.property.entity.RoomStatus;
+import com.example.rental.property.repository.RoomRepository;
 import com.example.rental.property.dto.PropertyRequest;
 import com.example.rental.property.dto.PropertyResponse;
 import com.example.rental.property.entity.Property;
@@ -18,15 +23,21 @@ public class PropertyService {
     private final PropertyRepository propertyRepository;
     private final UserAccountRepository userAccountRepository;
     private final CurrentUserService currentUserService;
+    private final RoomRepository roomRepository;
+    private final RentalContractRepository contractRepository;
 
     public PropertyService(
         PropertyRepository propertyRepository,
         UserAccountRepository userAccountRepository,
-        CurrentUserService currentUserService
+        CurrentUserService currentUserService,
+        RoomRepository roomRepository,
+        RentalContractRepository contractRepository
     ) {
         this.propertyRepository = propertyRepository;
         this.userAccountRepository = userAccountRepository;
         this.currentUserService = currentUserService;
+        this.roomRepository = roomRepository;
+        this.contractRepository = contractRepository;
     }
 
     @Transactional(readOnly = true)
@@ -66,6 +77,13 @@ public class PropertyService {
     @Transactional
     public void delete(Long id) {
         Property property = getOwnedProperty(id);
+        if (contractRepository.existsByRoomPropertyIdAndStatusAndDeletedAtIsNull(id, ContractStatus.ACTIVE)) {
+            throw new BadRequestException("Cannot remove a property with active contracts");
+        }
+        roomRepository.findByPropertyIdAndDeletedAtIsNullOrderByRoomNumber(id).forEach(room -> {
+            room.setStatus(RoomStatus.INACTIVE);
+            room.softDelete();
+        });
         property.softDelete();
     }
 

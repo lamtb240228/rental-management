@@ -65,4 +65,8 @@ public class ContractTenant {
     public LocalDate getMoveOutDate() {
         return moveOutDate;
     }
+
+    public void setMoveOutDate(LocalDate moveOutDate) {
+        this.moveOutDate = moveOutDate;
+    }
 }

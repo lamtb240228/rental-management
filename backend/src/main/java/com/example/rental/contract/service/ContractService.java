@@ -55,6 +55,18 @@ public class ContractService {
         return toResponse(getOwnedContract(id));
     }
 
+    @Transactional(readOnly = true)
+    public List<ContractResponse> listByTenant(Long tenantId) {
+        Tenant tenant = tenantRepository.findByIdAndLandlordIdAndDeletedAtIsNull(tenantId, currentUserService.currentUserId())
+            .orElseThrow(() -> new NotFoundException("Tenant not found"));
+        return contractRepository
+            .findDistinctByTenantsTenantIdAndRoomPropertyLandlordIdAndDeletedAtIsNullOrderByCreatedAtDesc(
+                tenant.getId(), currentUserService.currentUserId())
+            .stream()
+            .map(this::toResponse)
+            .toList();
+    }
+
     @Transactional
     public ContractResponse create(ContractRequest request) {
         if (request.endDate() != null && !request.endDate().isAfter(request.startDate())) {
@@ -105,8 +117,16 @@ public class ContractService {
     @Transactional
     public ContractResponse end(Long id, LocalDate endDate) {
         RentalContract contract = getOwnedContract(id);
+        if (contract.getStatus() != ContractStatus.ACTIVE) {
+            throw new BadRequestException("Only an active contract can be ended");
+        }
+        LocalDate resolvedEndDate = endDate == null ? LocalDate.now() : endDate;
+        if (!resolvedEndDate.isAfter(contract.getStartDate())) {
+            throw new BadRequestException("Contract end date must be after start date");
+        }
         contract.setStatus(ContractStatus.ENDED);
-        contract.setEndDate(endDate == null ? LocalDate.now() : endDate);
+        contract.setEndDate(resolvedEndDate);
+        contract.getTenants().forEach(contractTenant -> contractTenant.setMoveOutDate(resolvedEndDate));
         contract.getRoom().setStatus(RoomStatus.AVAILABLE);
         return toResponse(contract);
     }
