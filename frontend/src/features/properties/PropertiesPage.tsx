@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Home, RefreshCw } from "lucide-react";
-import { useEffect } from "react";
+import { Home, Pencil, RefreshCw, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -8,13 +8,15 @@ import { PageHeader } from "../../components/ui/page-header";
 import { Table, Td, Th } from "../../components/ui/table";
 import { queryClient } from "../../lib/query-client/queryClient";
 import { cn, formatCurrency } from "../../lib/utils";
-import { createProperty, createRoom, listProperties, listRooms } from "./propertyApi";
+import { createProperty, createRoom, listProperties, listRooms, updateProperty, updateRoom } from "./propertyApi";
 import { PropertyForm } from "./PropertyForm";
 import { RoomForm } from "./RoomForm";
 import { usePropertyUiStore } from "./usePropertyUiStore";
 
 export function PropertiesPage() {
   const { selectedPropertyId, setSelectedPropertyId } = usePropertyUiStore();
+  const [editingProperty, setEditingProperty] = useState(false);
+  const [editingRoomId, setEditingRoomId] = useState<number | null>(null);
   const propertiesQuery = useQuery({ queryKey: ["properties"], queryFn: listProperties });
   const selectedProperty = propertiesQuery.data?.find((property) => property.id === selectedPropertyId) ?? null;
   const roomsQuery = useQuery({
@@ -45,7 +47,25 @@ export function PropertiesPage() {
     },
   });
 
+  const updatePropertyMutation = useMutation({
+    mutationFn: (payload: Parameters<typeof updateProperty>[1]) => updateProperty(selectedPropertyId!, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+      setEditingProperty(false);
+    },
+  });
+
+  const updateRoomMutation = useMutation({
+    mutationFn: (payload: Parameters<typeof updateRoom>[1]) => updateRoom(editingRoomId!, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["properties", selectedPropertyId, "rooms"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard", "summary"] });
+      setEditingRoomId(null);
+    },
+  });
+
   const rooms = roomsQuery.data ?? [];
+  const editingRoom = rooms.find((room) => room.id === editingRoomId) ?? null;
 
   return (
     <div className="space-y-6">
@@ -64,13 +84,16 @@ export function PropertiesPage() {
       <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
         <div className="contents xl:block xl:space-y-5">
           <Card className="order-3">
-            <CardHeader>
-              <CardTitle>Thêm khu trọ</CardTitle>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>{editingProperty ? "Cập nhật khu trọ" : "Thêm khu trọ"}</CardTitle>
+              {editingProperty && <Button variant="ghost" size="icon" title="Hủy chỉnh sửa" onClick={() => setEditingProperty(false)}><X className="h-4 w-4" /></Button>}
             </CardHeader>
             <CardContent>
               <PropertyForm
-                isSubmitting={createPropertyMutation.isPending}
-                onSubmit={(payload) => createPropertyMutation.mutate(payload)}
+                key={editingProperty ? `edit-${selectedPropertyId}` : "create-property"}
+                initialValues={editingProperty && selectedProperty ? selectedProperty : undefined}
+                isSubmitting={createPropertyMutation.isPending || updatePropertyMutation.isPending}
+                onSubmit={(payload) => editingProperty ? updatePropertyMutation.mutate(payload) : createPropertyMutation.mutate(payload)}
               />
             </CardContent>
           </Card>
@@ -104,8 +127,9 @@ export function PropertiesPage() {
 
         <div className="contents xl:block xl:space-y-5">
           <Card className="order-2">
-            <CardHeader>
-              <CardTitle>{selectedProperty ? selectedProperty.name : "Phòng"}</CardTitle>
+            <CardHeader className="flex-row items-center justify-between">
+              <div><CardTitle>{selectedProperty ? selectedProperty.name : "Phòng"}</CardTitle>{selectedProperty && <p className="mt-1 text-sm text-zinc-500">{selectedProperty.addressLine}, {selectedProperty.provinceCity}</p>}</div>
+              {selectedProperty && <Button variant="secondary" size="sm" onClick={() => setEditingProperty(true)}><Pencil className="h-4 w-4" />Sửa khu trọ</Button>}
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-3 sm:hidden">
@@ -122,6 +146,7 @@ export function PropertiesPage() {
                       <p className="text-xs font-medium text-zinc-500">Giá thuê</p>
                       <p className="mt-1 text-sm font-semibold text-zinc-950">{formatCurrency(room.monthlyRent)}</p>
                     </div>
+                    <Button className="mt-3 w-full" variant="secondary" size="sm" onClick={() => setEditingRoomId(room.id)}><Pencil className="h-4 w-4" />Sửa phòng</Button>
                   </div>
                 ))}
                 {selectedPropertyId && rooms.length === 0 && (
@@ -140,6 +165,7 @@ export function PropertiesPage() {
                       <Th>Giá thuê</Th>
                       <Th>Số người</Th>
                       <Th>Trạng thái</Th>
+                      <Th>Thao tác</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -152,6 +178,7 @@ export function PropertiesPage() {
                         <Td>
                           <Badge>{room.status}</Badge>
                         </Td>
+                        <Td><Button variant="ghost" size="icon" title="Sửa phòng" onClick={() => setEditingRoomId(room.id)}><Pencil className="h-4 w-4" /></Button></Td>
                       </tr>
                     ))}
                   </tbody>
@@ -161,19 +188,25 @@ export function PropertiesPage() {
           </Card>
 
           <Card className="order-4">
-            <CardHeader>
-              <CardTitle>Thêm phòng</CardTitle>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>{editingRoom ? `Cập nhật phòng ${editingRoom.roomNumber}` : "Thêm phòng"}</CardTitle>
+              {editingRoom && <Button variant="ghost" size="icon" title="Hủy chỉnh sửa" onClick={() => setEditingRoomId(null)}><X className="h-4 w-4" /></Button>}
             </CardHeader>
             <CardContent>
               <RoomForm
+                key={editingRoom ? `edit-room-${editingRoom.id}` : `create-room-${selectedPropertyId}`}
                 disabled={!selectedPropertyId}
-                isSubmitting={createRoomMutation.isPending}
-                onSubmit={(payload) => createRoomMutation.mutate(payload)}
+                initialValues={editingRoom ?? undefined}
+                isSubmitting={createRoomMutation.isPending || updateRoomMutation.isPending}
+                onSubmit={(payload) => editingRoom ? updateRoomMutation.mutate(payload) : createRoomMutation.mutate(payload)}
               />
             </CardContent>
           </Card>
         </div>
       </div>
+      {(createPropertyMutation.isError || updatePropertyMutation.isError || createRoomMutation.isError || updateRoomMutation.isError) && (
+        <p className="text-sm text-red-600">Không thể lưu dữ liệu. Hãy kiểm tra trạng thái phòng và thông tin đã nhập.</p>
+      )}
     </div>
   );
 }

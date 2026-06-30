@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Ban, CreditCard, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -12,9 +12,9 @@ import { Textarea } from "../../components/ui/textarea";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient } from "../../lib/query-client/queryClient";
 import { formatCurrency } from "../../lib/utils";
-import { createInvoice, listInvoices, type InvoiceItemPayload, type InvoicePayload } from "./invoiceApi";
+import { cancelInvoice, createInvoice, createPayment, listInvoices, listPayments, type InvoiceItemPayload, type InvoicePayload, type PaymentPayload } from "./invoiceApi";
 import { listContracts } from "../contracts/contractApi";
-import type { ContractItem } from "../../lib/api/types";
+import { listUtilityReadings } from "../utilities/utilityApi";
 
 const invoiceItemTypes = ["RENT", "ELECTRICITY", "WATER", "SERVICE", "OTHER"] as const;
 
@@ -35,6 +35,8 @@ export function InvoicesPage() {
   const [discountAmount, setDiscountAmount] = useState(0);
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<InvoiceItemPayload[]>([emptyItem()]);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
+  const [payment, setPayment] = useState<PaymentPayload>({ amount: 0, paymentMethod: "BANK_TRANSFER", transactionReference: "", note: "" });
 
   const createInvoiceMutation = useMutation({
     mutationFn: createInvoice,
@@ -61,6 +63,40 @@ export function InvoicesPage() {
   );
 
   const selectedContract = contractsQuery.data?.find((item) => item.id === contractId);
+  const utilityQuery = useQuery({
+    queryKey: ["utility-readings", selectedContract?.roomId],
+    queryFn: () => listUtilityReadings(selectedContract!.roomId),
+    enabled: selectedContract != null,
+  });
+  const selectedInvoice = invoicesQuery.data?.find((invoice) => invoice.id === selectedInvoiceId) ?? null;
+  const paymentsQuery = useQuery({
+    queryKey: ["invoices", selectedInvoiceId, "payments"],
+    queryFn: () => listPayments(selectedInvoiceId!),
+    enabled: selectedInvoiceId != null,
+  });
+
+  useEffect(() => {
+    if (!selectedContract) return;
+    const reading = utilityQuery.data?.find((item) => item.billingYear === billingYear && item.billingMonth === billingMonth);
+    const nextItems: InvoiceItemPayload[] = [{ itemType: "RENT", description: "Tiền phòng", quantity: 1, unitPrice: Number(selectedContract.monthlyRent) }];
+    if (reading && Number(reading.electricityUsage) > 0) nextItems.push({ itemType: "ELECTRICITY", description: "Tiền điện", quantity: Number(reading.electricityUsage), unitPrice: Number(reading.electricityUnitPrice) });
+    if (reading && Number(reading.waterUsage) > 0) nextItems.push({ itemType: "WATER", description: "Tiền nước", quantity: Number(reading.waterUsage), unitPrice: Number(reading.waterUnitPrice) });
+    setItems(nextItems);
+  }, [billingMonth, billingYear, selectedContract, utilityQuery.data]);
+
+  const paymentMutation = useMutation({
+    mutationFn: () => createPayment(selectedInvoiceId!, { ...payment, amount: Number(payment.amount), paymentStatus: "COMPLETED" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices", selectedInvoiceId, "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard", "summary"] });
+      setPayment({ amount: 0, paymentMethod: "BANK_TRANSFER", transactionReference: "", note: "" });
+    },
+  });
+  const cancelMutation = useMutation({
+    mutationFn: cancelInvoice,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+  });
 
   function updateItem(index: number, value: Partial<InvoiceItemPayload>) {
     setItems((current) => current.map((item, idx) => (idx === index ? { ...item, ...value } : item)));
@@ -80,6 +116,11 @@ export function InvoicesPage() {
       notes: notes || undefined,
       items,
     } as InvoicePayload);
+  }
+
+  function choosePayment(invoice: NonNullable<typeof invoicesQuery.data>[number]) {
+    setSelectedInvoiceId(invoice.id);
+    setPayment((current) => ({ ...current, amount: Math.max(0, Number(invoice.totalAmount) - Number(invoice.paidAmount)) }));
   }
 
   return (
@@ -164,8 +205,8 @@ export function InvoicesPage() {
                 </div>
 
                 {items.map((item, index) => (
-                  <div key={index} className="grid grid-cols-2 gap-3 rounded-2xl border border-zinc-200 p-3 sm:grid-cols-[1fr_0.9fr_0.9fr_0.8fr] sm:p-4">
-                    <div className="col-span-2 space-y-2 sm:col-span-1">
+                  <div key={index} className="grid grid-cols-2 gap-3 rounded-lg border border-zinc-200 p-3 sm:p-4">
+                    <div className="space-y-2">
                       <Label>Loại</Label>
                       <Select
                         value={item.itemType}
@@ -178,7 +219,7 @@ export function InvoicesPage() {
                         ))}
                       </Select>
                     </div>
-                    <div className="col-span-2 space-y-2 sm:col-span-1">
+                    <div className="space-y-2">
                       <Label>Mô tả</Label>
                       <Input
                         value={item.description}
@@ -258,6 +299,7 @@ export function InvoicesPage() {
                     <Th>Tổng</Th>
                     <Th>Đã trả</Th>
                     <Th>Trạng thái</Th>
+                    <Th>Thao tác</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -271,6 +313,10 @@ export function InvoicesPage() {
                       <Td>
                         <Badge>{invoice.status}</Badge>
                       </Td>
+                      <Td><div className="flex gap-1">
+                        <Button variant="secondary" size="sm" disabled={invoice.status === "PAID" || invoice.status === "CANCELLED"} onClick={() => choosePayment(invoice)}><CreditCard className="h-4 w-4" />Thu tiền</Button>
+                        {Number(invoice.paidAmount) === 0 && invoice.status !== "CANCELLED" && <Button variant="ghost" size="icon" title="Hủy hóa đơn" onClick={() => cancelMutation.mutate(invoice.id)}><Ban className="h-4 w-4" /></Button>}
+                      </div></Td>
                     </tr>
                   ))}
                   {invoicesQuery.data?.length === 0 && (
@@ -306,6 +352,10 @@ export function InvoicesPage() {
                       <p className="text-xs font-medium text-zinc-500">Đã trả</p>
                       <p className="mt-1 text-sm font-semibold text-zinc-950">{formatCurrency(Number(invoice.paidAmount))}</p>
                     </div>
+                    <div className="col-span-2 flex gap-2">
+                      <Button className="flex-1" variant="secondary" disabled={invoice.status === "PAID" || invoice.status === "CANCELLED"} onClick={() => choosePayment(invoice)}><CreditCard className="h-4 w-4" />Thu tiền</Button>
+                      {Number(invoice.paidAmount) === 0 && invoice.status !== "CANCELLED" && <Button variant="ghost" size="icon" title="Hủy hóa đơn" onClick={() => cancelMutation.mutate(invoice.id)}><Ban className="h-4 w-4" /></Button>}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -318,6 +368,31 @@ export function InvoicesPage() {
           </CardContent>
         </Card>
       </div>
+
+      {selectedInvoice && (
+        <Card>
+          <CardHeader className="flex-row items-start justify-between gap-4">
+            <div><CardTitle>Thu tiền {selectedInvoice.invoiceNumber}</CardTitle><p className="mt-1 text-sm text-zinc-500">Còn phải thu: {formatCurrency(Number(selectedInvoice.totalAmount) - Number(selectedInvoice.paidAmount))}</p></div>
+            <Button variant="ghost" size="icon" title="Đóng" onClick={() => setSelectedInvoiceId(null)}><X className="h-4 w-4" /></Button>
+          </CardHeader>
+          <CardContent className="grid gap-5 lg:grid-cols-[360px_1fr]">
+            <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); paymentMutation.mutate(); }}>
+              <div className="space-y-2"><Label htmlFor="payment-amount">Số tiền</Label><Input id="payment-amount" type="number" min={1} max={Number(selectedInvoice.totalAmount) - Number(selectedInvoice.paidAmount)} value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: Number(e.target.value) })} required /></div>
+              <div className="space-y-2"><Label htmlFor="payment-method">Phương thức</Label><Select id="payment-method" value={payment.paymentMethod} onChange={(e) => setPayment({ ...payment, paymentMethod: e.target.value as PaymentPayload["paymentMethod"] })}><option value="BANK_TRANSFER">Chuyển khoản</option><option value="CASH">Tiền mặt</option><option value="CARD">Thẻ</option><option value="OTHER">Khác</option></Select></div>
+              <div className="space-y-2"><Label htmlFor="payment-reference">Mã giao dịch</Label><Input id="payment-reference" value={payment.transactionReference ?? ""} onChange={(e) => setPayment({ ...payment, transactionReference: e.target.value })} /></div>
+              <div className="space-y-2"><Label htmlFor="payment-note">Ghi chú</Label><Textarea id="payment-note" value={payment.note ?? ""} onChange={(e) => setPayment({ ...payment, note: e.target.value })} /></div>
+              <Button className="w-full" disabled={paymentMutation.isPending || Number(payment.amount) <= 0}><CreditCard className="h-4 w-4" />{paymentMutation.isPending ? "Đang ghi nhận..." : "Xác nhận thanh toán"}</Button>
+              {paymentMutation.isError && <p className="text-sm text-red-600">Không thể ghi nhận. Kiểm tra số tiền hoặc mã giao dịch.</p>}
+            </form>
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-zinc-900">Lịch sử thanh toán</h3>
+              <div className="space-y-2">{(paymentsQuery.data ?? []).map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-200 p-3"><div><p className="font-medium">{formatCurrency(Number(item.amount))}</p><p className="text-xs text-zinc-500">{new Date(item.paidAt).toLocaleString("vi-VN")} · {item.paymentMethod}</p></div><Badge>{item.paymentStatus}</Badge></div>)}</div>
+              {paymentsQuery.data?.length === 0 && <p className="text-sm text-zinc-500">Chưa có lần thanh toán nào.</p>}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {cancelMutation.isError && <p className="text-sm text-red-600">Không thể hủy hóa đơn đã có thanh toán.</p>}
     </div>
   );
 }

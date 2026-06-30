@@ -11,7 +11,7 @@ type PageHeaderProps = {
 
 export function PageHeader({ title, subtitle, description, action, className }: PageHeaderProps) {
   return (
-    <div className={cn("rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm sm:rounded-3xl sm:p-5", className)}>
+    <div className={cn("rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5", className)}>
       <div className="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-start">
         <div className="min-w-0">
           {subtitle && <p className="text-sm font-medium text-teal-700">{subtitle}</p>}

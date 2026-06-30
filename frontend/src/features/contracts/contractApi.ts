@@ -23,3 +23,9 @@ export async function createContract(payload: ContractPayload) {
   const response = await apiClient.post<ApiResponse<ContractItem>>("/contracts", payload);
   return response.data.data;
 }
+
+export async function endContract(id: number, endDate?: string) {
+  const query = endDate ? `?endDate=${encodeURIComponent(endDate)}` : "";
+  const response = await apiClient.patch<ApiResponse<ContractItem>>(`/contracts/${id}/end${query}`);
+  return response.data.data;
+}

@@ -32,6 +32,11 @@ export async function createProperty(payload: PropertyPayload) {
   return response.data.data;
 }
 
+export async function updateProperty(id: number, payload: PropertyPayload) {
+  const response = await apiClient.put<ApiResponse<PropertyItem>>(`/properties/${id}`, payload);
+  return response.data.data;
+}
+
 export async function listRooms(propertyId: number) {
   const response = await apiClient.get<ApiResponse<RoomItem[]>>(`/properties/${propertyId}/rooms`);
   return response.data.data;
@@ -39,5 +44,10 @@ export async function listRooms(propertyId: number) {
 
 export async function createRoom(propertyId: number, payload: RoomPayload) {
   const response = await apiClient.post<ApiResponse<RoomItem>>(`/properties/${propertyId}/rooms`, payload);
+  return response.data.data;
+}
+
+export async function updateRoom(id: number, payload: RoomPayload) {
+  const response = await apiClient.put<ApiResponse<RoomItem>>(`/rooms/${id}`, payload);
   return response.data.data;
 }

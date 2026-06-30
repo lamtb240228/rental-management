@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus } from "lucide-react";
+import { Plus, Save } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "../../components/ui/button";
@@ -27,22 +27,24 @@ export function RoomForm({
   disabled,
   onSubmit,
   isSubmitting,
+  initialValues,
 }: {
   disabled: boolean;
   onSubmit: (payload: RoomPayload) => void;
   isSubmitting: boolean;
+  initialValues?: RoomPayload;
 }) {
   const form = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      roomNumber: "",
-      floorNumber: undefined,
-      area: 20,
-      monthlyRent: 0,
-      defaultDeposit: 0,
-      maxOccupants: 2,
-      status: "AVAILABLE",
-      description: "",
+      roomNumber: initialValues?.roomNumber ?? "",
+      floorNumber: initialValues?.floorNumber,
+      area: initialValues?.area ?? 20,
+      monthlyRent: initialValues?.monthlyRent ?? 0,
+      defaultDeposit: initialValues?.defaultDeposit ?? 0,
+      maxOccupants: initialValues?.maxOccupants ?? 2,
+      status: initialValues?.status ?? "AVAILABLE",
+      description: initialValues?.description ?? "",
     },
   });
 
@@ -51,7 +53,7 @@ export function RoomForm({
       className="space-y-4"
       onSubmit={form.handleSubmit((values) => {
         onSubmit(values);
-        form.reset();
+        if (!initialValues) form.reset();
       })}
     >
       <div className="grid gap-3 sm:grid-cols-2">
@@ -88,6 +90,7 @@ export function RoomForm({
         <Label htmlFor="status">Trạng thái</Label>
         <Select id="status" disabled={disabled} {...form.register("status")}>
           <option value="AVAILABLE">Trống</option>
+          {initialValues?.status === "OCCUPIED" && <option value="OCCUPIED">Đang thuê</option>}
           <option value="MAINTENANCE">Đang sửa</option>
           <option value="INACTIVE">Ngừng dùng</option>
         </Select>
@@ -97,8 +100,8 @@ export function RoomForm({
         <Textarea id="room-description" disabled={disabled} {...form.register("description")} />
       </div>
       <Button className="w-full sm:w-auto" disabled={disabled || isSubmitting}>
-        <Plus className="h-4 w-4" />
-        Thêm phòng
+        {initialValues ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+        {initialValues ? "Lưu thay đổi" : "Thêm phòng"}
       </Button>
     </form>
   );

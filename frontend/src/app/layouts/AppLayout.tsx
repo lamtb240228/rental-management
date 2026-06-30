@@ -6,6 +6,7 @@ import {
   LogOut,
   Menu,
   ReceiptText,
+  Gauge,
   ShieldCheck,
   UserCog,
   Users,
@@ -29,6 +30,7 @@ const landlordNavItems: NavItem[] = [
   { to: "/properties", label: "Khu trọ", icon: Home },
   { to: "/tenants", label: "Người thuê", icon: Users },
   { to: "/contracts", label: "Hợp đồng", icon: FileText },
+  { to: "/utilities", label: "Điện nước", icon: Gauge },
   { to: "/invoices", label: "Hóa đơn", icon: ReceiptText },
   { to: "/maintenance", label: "Sửa chữa", icon: Wrench },
 ];

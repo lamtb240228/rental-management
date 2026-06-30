@@ -24,10 +24,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at top left, rgba(45, 212, 191, 0.16), transparent 26%),
-    radial-gradient(circle at top right, rgba(129, 140, 248, 0.14), transparent 24%),
-    linear-gradient(180deg, #f8fafc 0%, #edf2ff 100%);
+  background: #f4f7f9;
   color: #111827;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

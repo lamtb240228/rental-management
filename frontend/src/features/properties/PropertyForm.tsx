@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus } from "lucide-react";
+import { Plus, Save } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
+import { Select } from "../../components/ui/select";
 import type { PropertyPayload } from "./propertyApi";
 
 const schema = z.object({
@@ -15,6 +16,7 @@ const schema = z.object({
   district: z.string().optional(),
   provinceCity: z.string().min(2),
   description: z.string().optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -22,19 +24,22 @@ type FormValues = z.infer<typeof schema>;
 export function PropertyForm({
   onSubmit,
   isSubmitting,
+  initialValues,
 }: {
   onSubmit: (payload: PropertyPayload) => void;
   isSubmitting: boolean;
+  initialValues?: PropertyPayload;
 }) {
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      name: "",
-      addressLine: "",
-      ward: "",
-      district: "",
-      provinceCity: "",
-      description: "",
+      name: initialValues?.name ?? "",
+      addressLine: initialValues?.addressLine ?? "",
+      ward: initialValues?.ward ?? "",
+      district: initialValues?.district ?? "",
+      provinceCity: initialValues?.provinceCity ?? "",
+      description: initialValues?.description ?? "",
+      status: initialValues?.status ?? "ACTIVE",
     },
   });
 
@@ -42,8 +47,8 @@ export function PropertyForm({
     <form
       className="space-y-4"
       onSubmit={form.handleSubmit((values) => {
-        onSubmit({ ...values, status: "ACTIVE" });
-        form.reset();
+        onSubmit(values);
+        if (!initialValues) form.reset();
       })}
     >
       <div className="space-y-2">
@@ -72,9 +77,16 @@ export function PropertyForm({
         <Label htmlFor="description">Mô tả</Label>
         <Textarea id="description" {...form.register("description")} />
       </div>
+      <div className="space-y-2">
+        <Label htmlFor="property-status">Trạng thái</Label>
+        <Select id="property-status" {...form.register("status")}>
+          <option value="ACTIVE">Đang hoạt động</option>
+          <option value="INACTIVE">Ngừng hoạt động</option>
+        </Select>
+      </div>
       <Button className="w-full sm:w-auto" disabled={isSubmitting}>
-        <Plus className="h-4 w-4" />
-        Thêm khu trọ
+        {initialValues ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+        {initialValues ? "Lưu thay đổi" : "Thêm khu trọ"}
       </Button>
     </form>
   );

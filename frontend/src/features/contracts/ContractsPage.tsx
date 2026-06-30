@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { CalendarX2, RefreshCw } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -12,10 +12,9 @@ import { Textarea } from "../../components/ui/textarea";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient } from "../../lib/query-client/queryClient";
 import { formatCurrency } from "../../lib/utils";
-import { createContract, listContracts, type ContractPayload } from "./contractApi";
+import { createContract, endContract, listContracts, type ContractPayload } from "./contractApi";
 import { listProperties, listRooms } from "../properties/propertyApi";
-import { listTenants, type TenantPayload } from "../tenants/tenantApi";
-import type { PropertyItem, RoomItem, TenantItem } from "../../lib/api/types";
+import { listTenants } from "../tenants/tenantApi";
 
 const initialFormState: Omit<ContractPayload, "tenantIds" | "primaryTenantId"> & {
   propertyId?: number;
@@ -63,8 +62,8 @@ export function ContractsPage() {
     }
   }, [form.roomId, form.monthlyRent, roomsQuery.data]);
 
-  const roomOptions = roomsQuery.data ?? [];
-  const tenantOptions = tenantsQuery.data ?? [];
+  const roomOptions = (roomsQuery.data ?? []).filter((room) => room.status === "AVAILABLE");
+  const tenantOptions = (tenantsQuery.data ?? []).filter((tenant) => tenant.status === "ACTIVE");
 
   const primaryTenantOptions = useMemo(
     () => tenantOptions.filter((tenant) => form.tenantIds.includes(tenant.id)),
@@ -76,6 +75,14 @@ export function ContractsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
       setForm(initialFormState);
+    },
+  });
+  const endContractMutation = useMutation({
+    mutationFn: (id: number) => endContract(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard", "summary"] });
     },
   });
 
@@ -93,7 +100,7 @@ export function ContractsPage() {
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!form.propertyId || !form.roomId || !form.startDate || !form.monthlyRent || !form.depositAmount || !form.tenantIds.length || !form.primaryTenantId) {
+    if (!form.propertyId || !form.roomId || !form.startDate || form.monthlyRent < 0 || form.depositAmount < 0 || !form.tenantIds.length || !form.primaryTenantId) {
       return;
     }
     createContractMutation.mutate({
@@ -291,6 +298,7 @@ export function ContractsPage() {
                     <Th>Ngày kết thúc</Th>
                     <Th>Giá thuê</Th>
                     <Th>Trạng thái</Th>
+                    <Th>Thao tác</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -303,6 +311,13 @@ export function ContractsPage() {
                       <Td>{formatCurrency(Number(contract.monthlyRent))}</Td>
                       <Td>
                         <Badge>{contract.status}</Badge>
+                      </Td>
+                      <Td>
+                        {contract.status === "ACTIVE" && (
+                          <Button variant="secondary" size="sm" disabled={endContractMutation.isPending} onClick={() => endContractMutation.mutate(contract.id)}>
+                            <CalendarX2 className="h-4 w-4" />Kết thúc
+                          </Button>
+                        )}
                       </Td>
                     </tr>
                   ))}
@@ -339,6 +354,11 @@ export function ContractsPage() {
                       <p className="text-xs font-medium text-zinc-500">Giá thuê</p>
                       <p className="mt-1 text-sm font-semibold text-zinc-950">{formatCurrency(Number(contract.monthlyRent))}</p>
                     </div>
+                    {contract.status === "ACTIVE" && (
+                      <Button className="col-span-2" variant="secondary" disabled={endContractMutation.isPending} onClick={() => endContractMutation.mutate(contract.id)}>
+                        <CalendarX2 className="h-4 w-4" />Kết thúc hợp đồng
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -351,6 +371,7 @@ export function ContractsPage() {
           </CardContent>
         </Card>
       </div>
+      {endContractMutation.isError && <p className="text-sm text-red-600">Không thể kết thúc hợp đồng. Hãy kiểm tra ngày bắt đầu.</p>}
     </div>
   );
 }

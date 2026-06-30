@@ -1,10 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { Building2, DoorOpen, ReceiptText, ShieldCheck, UserCog, Users, Wrench } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Building2, DoorOpen, LockKeyhole, LockOpen, ReceiptText, ShieldCheck, UserCog, Users, Wrench } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { PageHeader } from "../../components/ui/page-header";
 import { Table, Td, Th } from "../../components/ui/table";
-import { getAdminSummary, listAdminUsers } from "./adminApi";
+import { queryClient } from "../../lib/query-client/queryClient";
+import { useAuth } from "../auth/AuthProvider";
+import { getAdminSummary, listAdminUsers, updateAdminUserStatus } from "./adminApi";
 
 const stats = [
   { key: "userCount", label: "Tài khoản", icon: Users, className: "text-teal-700" },
@@ -17,8 +20,28 @@ const stats = [
 ] as const;
 
 export function AdminDashboardPage() {
+  const { user: currentUser } = useAuth();
   const summaryQuery = useQuery({ queryKey: ["admin", "summary"], queryFn: getAdminSummary });
   const usersQuery = useQuery({ queryKey: ["admin", "users"], queryFn: listAdminUsers });
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: "ACTIVE" | "LOCKED" }) => updateAdminUserStatus(id, status),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
+
+  function statusAction(user: NonNullable<typeof usersQuery.data>[number]) {
+    const nextStatus = user.status === "ACTIVE" ? "LOCKED" : "ACTIVE";
+    return (
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={statusMutation.isPending || user.id === currentUser?.id}
+        onClick={() => statusMutation.mutate({ id: user.id, status: nextStatus })}
+      >
+        {nextStatus === "LOCKED" ? <LockKeyhole className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+        {nextStatus === "LOCKED" ? "Khóa" : "Mở khóa"}
+      </Button>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -60,6 +83,7 @@ export function AdminDashboardPage() {
                   <Th>Vai trò</Th>
                   <Th>Trạng thái</Th>
                   <Th>Đăng nhập gần nhất</Th>
+                  <Th>Thao tác</Th>
                 </tr>
               </thead>
               <tbody>
@@ -81,6 +105,7 @@ export function AdminDashboardPage() {
                       <Badge>{user.status}</Badge>
                     </Td>
                     <Td>{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString("vi-VN") : "Chưa có"}</Td>
+                    <Td>{statusAction(user)}</Td>
                   </tr>
                 ))}
               </tbody>
@@ -113,6 +138,7 @@ export function AdminDashboardPage() {
                       {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString("vi-VN") : "Chưa có"}
                     </p>
                   </div>
+                  <div className="col-span-2">{statusAction(user)}</div>
                 </div>
               </div>
             ))}
@@ -124,6 +150,7 @@ export function AdminDashboardPage() {
           </div>
         </CardContent>
       </Card>
+      {statusMutation.isError && <p className="text-sm text-red-600">Không thể thay đổi trạng thái tài khoản.</p>}
     </div>
   );
 }
