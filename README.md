@@ -26,10 +26,12 @@ rental-management/
 ├── backend/
 │   └── src/main/java/com/example/rental/
 │       ├── common/
+│       ├── admin/
 │       ├── auth/
 │       ├── user/
 │       ├── property/
 │       ├── tenant/
+│       ├── tenantportal/
 │       ├── contract/
 │       ├── billing/
 │       ├── payment/
@@ -89,13 +91,34 @@ Demo accounts after Flyway migrations run:
 
 ## First Flow
 
-The implemented first workflow is:
+The implemented landlord workflow is:
 
 ```text
-register/login -> create property -> create room -> view room list
+login
+  -> create/update property and room
+  -> create/update tenant
+  -> create/end contract
+  -> record monthly electricity and water readings
+  -> create invoice with rent and utility items
+  -> record one or more payments
+  -> process maintenance requests
 ```
 
-The backend also includes APIs for tenants, contracts, utility readings, invoices, payments, maintenance requests, and dashboard summary.
+## MVP Feature Status
+
+| Area | Landlord | Tenant | Admin |
+| --- | --- | --- | --- |
+| Authentication and role protection | Login/register/logout | Login/logout | Login/logout |
+| Properties and rooms | Create, list, edit, deactivate | View rented room | System totals |
+| Tenants | Create, list, edit, rental history | View own profile | Account list |
+| Contracts | Create and end | View own active contract | System totals |
+| Utility readings | Create, edit, usage and cost calculation | View own readings | - |
+| Invoices | Create, auto-fill rent/utilities, cancel unpaid invoice | View own invoices | System totals |
+| Payments | Record partial/full payments and history | View own payments | - |
+| Maintenance | View and update status/resolution | Submit and track requests | Pending total |
+| Account administration | - | - | Lock and unlock accounts |
+
+All business APIs verify record ownership. Direct navigation to a route outside the current role is also redirected by the React application.
 
 ## Tests
 
@@ -114,13 +137,14 @@ npm.cmd run test
 npm.cmd run test:e2e
 ```
 
-Backend integration tests use Testcontainers PostgreSQL. Playwright is configured for Chromium, Firefox, and WebKit.
+Backend integration tests use Testcontainers PostgreSQL. Playwright is configured for Chromium, Firefox, WebKit, and a Pixel 7 mobile viewport. Docker Desktop must be running because Testcontainers starts a real PostgreSQL 16 instance.
 
 ## Notes
 
 - Redis and Quartz are intentionally not added yet.
 - File attachment tables and Cloudinary/S3 integration are deferred until the maintenance or contract attachment workflow needs them.
 - Database migration `V1__init_core_schema.sql` creates the 13 core MVP tables described in `docs/database-schema.md`.
+- Temporary residence, recurring service configuration, dedicated deposit accounting, notifications, asset inventory, and advanced financial reporting belong to the post-MVP roadmap and are not represented as completed features.
 
 ## ⚠️ Note: 
 This branch uses AI-assisted development to create a sample prototype of the project. The purpose of this branch is to explore ideas, test implementation approaches, and support the learning process.
