@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: rental_management_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rental_management
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - rental_management_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  rental_management_postgres_data:
