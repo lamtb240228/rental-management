@@ -2,10 +2,11 @@ package com.lam.rentalmanagement.controller;
 
 import java.util.List;
 
+import com.lam.rentalmanagement.dto.CreateUserAccountRequest;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import com.lam.rentalmanagement.dto.UserAccountResponse;
 import com.lam.rentalmanagement.service.UserAccountService;
@@ -25,5 +26,15 @@ public class UserAccountController {
         return ResponseEntity.ok(
                 userAccountService.getAllUserAccounts()
         );
+    }
+    @PostMapping
+    public ResponseEntity<UserAccountResponse> createUserAccount(
+            @Valid @RequestBody CreateUserAccountRequest request
+    ) {
+        UserAccountResponse response =
+                userAccountService.createUserAccount(request);
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(response);
     }
 }
