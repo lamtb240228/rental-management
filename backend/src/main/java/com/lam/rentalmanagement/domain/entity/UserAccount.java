@@ -121,6 +121,9 @@ public class UserAccount extends BaseEntity {
     public void setStatus(UserAccountStatus status) {
         this.status = status;
     }
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
 
     public void verifyEmail() {
         this.emailVerified = true;

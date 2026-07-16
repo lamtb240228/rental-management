@@ -9,10 +9,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.lam.rentalmanagement.domain.entity.Role;
 import com.lam.rentalmanagement.domain.entity.UserAccount;
+import com.lam.rentalmanagement.domain.entity.UserAccountStatus;
+import com.lam.rentalmanagement.dto.ChangePasswordRequest;
 import com.lam.rentalmanagement.dto.CreateUserAccountRequest;
+import com.lam.rentalmanagement.dto.UpdateUserAccountRequest;
 import com.lam.rentalmanagement.dto.UserAccountResponse;
 import com.lam.rentalmanagement.exception.DuplicateEmailException;
+import com.lam.rentalmanagement.exception.PasswordConfirmationMismatchException;
 import com.lam.rentalmanagement.exception.RoleNotFoundException;
+import com.lam.rentalmanagement.exception.UserAccountNotFoundException;
 import com.lam.rentalmanagement.repository.RoleRepository;
 import com.lam.rentalmanagement.repository.UserAccountRepository;
 
@@ -41,13 +46,20 @@ public class UserAccountService {
                 .toList();
     }
 
+    public UserAccountResponse getUserAccountById(Long id) {
+        UserAccount userAccount = userAccountRepository.findById(id)
+                .orElseThrow(
+                        () -> new UserAccountNotFoundException(id)
+                );
+
+        return UserAccountResponse.from(userAccount);
+    }
+
     @Transactional
     public UserAccountResponse createUserAccount(
             CreateUserAccountRequest request
     ) {
-        String normalizedEmail = request.email()
-                .trim()
-                .toLowerCase(Locale.ROOT);
+        String normalizedEmail = normalizeEmail(request.email());
 
         String normalizedRoleName = request.roleName()
                 .trim()
@@ -62,9 +74,11 @@ public class UserAccountService {
                         () -> new RoleNotFoundException(normalizedRoleName)
                 );
 
-        String passwordHash = passwordEncoder.encode(request.password());
+        String passwordHash =
+                passwordEncoder.encode(request.password());
 
-        String normalizedPhone = normalizePhone(request.phone());
+        String normalizedPhone =
+                normalizePhone(request.phone());
 
         UserAccount userAccount = new UserAccount(
                 normalizedEmail,
@@ -79,6 +93,92 @@ public class UserAccountService {
                 userAccountRepository.save(userAccount);
 
         return UserAccountResponse.from(savedUserAccount);
+    }
+
+    @Transactional
+    public UserAccountResponse updateUserAccount(
+            Long id,
+            UpdateUserAccountRequest request
+    ) {
+        UserAccount userAccount = userAccountRepository.findById(id)
+                .orElseThrow(
+                        () -> new UserAccountNotFoundException(id)
+                );
+
+        String normalizedEmail =
+                normalizeEmail(request.email());
+
+        boolean emailUsedByAnotherAccount =
+                userAccountRepository.existsByEmailAndIdNot(
+                        normalizedEmail,
+                        id
+                );
+
+        if (emailUsedByAnotherAccount) {
+            throw new DuplicateEmailException(normalizedEmail);
+        }
+
+        userAccount.setEmail(normalizedEmail);
+        userAccount.setFullName(request.fullName().trim());
+        userAccount.setPhone(normalizePhone(request.phone()));
+        userAccount.setStatus(request.status());
+
+        UserAccount savedUserAccount =
+                userAccountRepository.save(userAccount);
+
+        return UserAccountResponse.from(savedUserAccount);
+    }
+
+    @Transactional
+    public void changePassword(
+            Long id,
+            ChangePasswordRequest request
+    ) {
+        UserAccount userAccount = userAccountRepository.findById(id)
+                .orElseThrow(
+                        () -> new UserAccountNotFoundException(id)
+                );
+
+        if (!request.newPassword().equals(request.confirmPassword())) {
+            throw new PasswordConfirmationMismatchException();
+        }
+
+        String newPasswordHash =
+                passwordEncoder.encode(request.newPassword());
+
+        userAccount.setPasswordHash(newPasswordHash);
+
+        userAccountRepository.save(userAccount);
+    }
+
+    @Transactional
+    public void lockUserAccount(Long id) {
+        UserAccount userAccount = userAccountRepository.findById(id)
+                .orElseThrow(
+                        () -> new UserAccountNotFoundException(id)
+                );
+
+        userAccount.setStatus(UserAccountStatus.LOCKED);
+
+        userAccountRepository.save(userAccount);
+    }
+
+    @Transactional
+    public void unlockUserAccount(Long id) {
+        UserAccount userAccount = userAccountRepository.findById(id)
+                .orElseThrow(
+                        () -> new UserAccountNotFoundException(id)
+                );
+
+        userAccount.setStatus(UserAccountStatus.ACTIVE);
+
+        userAccountRepository.save(userAccount);
+    }
+
+    private String normalizeEmail(String email) {
+        return email
+                .trim()
+                .toLowerCase(Locale.ROOT);
     }
 
     private String normalizePhone(String phone) {

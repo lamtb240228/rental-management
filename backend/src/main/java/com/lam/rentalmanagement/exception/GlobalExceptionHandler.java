@@ -60,6 +60,27 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
+    @ExceptionHandler(UserAccountNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleUserAccountNotFound(
+            UserAccountNotFoundException exception,
+            HttpServletRequest request
+    ) {
+        HttpStatus status = HttpStatus.NOT_FOUND;
+
+        ApiErrorResponse response = new ApiErrorResponse(
+                OffsetDateTime.now(),
+                status.value(),
+                status.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+
+        return ResponseEntity
+                .status(status)
+                .body(response);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiErrorResponse> handleValidation(
             MethodArgumentNotValidException exception,
@@ -87,6 +108,25 @@ public class GlobalExceptionHandler {
                 validationErrors
         );
 
+        return ResponseEntity
+                .status(status)
+                .body(response);
+    }
+    @ExceptionHandler(PasswordConfirmationMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handlePasswordConfirmationMismatch(
+            PasswordConfirmationMismatchException exception,
+            HttpServletRequest request
+    ){
+        HttpStatus status = HttpStatus.BAD_REQUEST;
+
+        ApiErrorResponse response = new ApiErrorResponse(
+                OffsetDateTime.now(),
+                status.value(),
+                status.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
         return ResponseEntity
                 .status(status)
                 .body(response);
