@@ -18,6 +18,7 @@ import com.example.rental.user.repository.UserAccountRepository;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -52,7 +53,7 @@ public class PaymentService {
 
     @Transactional
     public InvoiceResponse create(Long invoiceId, PaymentRequest request) {
-        Invoice invoice = invoiceService.getOwnedInvoice(invoiceId);
+        Invoice invoice = invoiceService.getOwnedInvoiceForUpdate(invoiceId);
         if (StringUtils.hasText(request.transactionReference())
             && paymentRepository.existsByTransactionReferenceAndDeletedAtIsNull(request.transactionReference().trim())) {
             throw new ConflictException("Transaction reference already exists");
@@ -83,9 +84,13 @@ public class PaymentService {
             ? request.transactionReference().trim() : null);
         payment.setNote(request.note());
         payment.setReceivedBy(receiver);
-        paymentRepository.save(payment);
+        try {
+            paymentRepository.saveAndFlush(payment);
+        } catch (DataIntegrityViolationException exception) {
+            throw new ConflictException("Transaction reference already exists");
+        }
 
-        return invoiceService.get(invoice.getId());
+        return invoiceService.toResponse(invoice);
     }
 
     public PaymentResponse toResponse(Payment payment) {

@@ -57,7 +57,9 @@ Administrator có thể:
 - Quản lý tài khoản chủ trọ
 - Khóa hoặc mở khóa tài khoản
 - Theo dõi trạng thái hệ thống
-- Quản lý dữ liệu toàn hệ thống
+- Xem số liệu vận hành tổng hợp đã được giới hạn dữ liệu nhạy cảm
+
+Administrator là quản trị nền tảng và không mặc nhiên được đọc/sửa dữ liệu nghiệp vụ chi tiết của mọi chủ trọ. Mọi quyền hỗ trợ truy cập dữ liệu khách hàng trong tương lai phải có scope, lý do, audit và cơ chế phê duyệt rõ ràng.
 
 Chức năng Administrator chưa phải ưu tiên trong phiên bản MVP đầu tiên.
 

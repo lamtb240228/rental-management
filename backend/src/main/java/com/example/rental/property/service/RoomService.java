@@ -10,6 +10,7 @@ import com.example.rental.property.dto.RoomRequest;
 import com.example.rental.property.dto.RoomResponse;
 import com.example.rental.property.entity.Property;
 import com.example.rental.property.entity.Room;
+import com.example.rental.property.entity.RoomStatus;
 import com.example.rental.property.mapper.RoomMapper;
 import com.example.rental.property.repository.RoomRepository;
 import java.util.List;
@@ -65,7 +66,12 @@ public class RoomService {
 
     @Transactional
     public RoomResponse update(Long id, RoomRequest request) {
-        Room room = getOwnedRoom(id);
+        Room room = getOwnedRoomForUpdate(id);
+        RoomStatus requestedStatus = request.status() == null ? RoomStatus.AVAILABLE : request.status();
+        if (requestedStatus != RoomStatus.OCCUPIED
+            && contractRepository.existsByRoomIdAndStatusAndDeletedAtIsNull(id, ContractStatus.ACTIVE)) {
+            throw new BadRequestException("A room with an active contract must remain occupied");
+        }
         if (!room.getRoomNumber().equalsIgnoreCase(request.roomNumber())
             && roomRepository.existsByPropertyIdAndRoomNumberIgnoreCaseAndDeletedAtIsNull(room.getProperty().getId(), request.roomNumber())) {
             throw new ConflictException("Room number already exists in this property");
@@ -76,7 +82,7 @@ public class RoomService {
 
     @Transactional
     public void delete(Long id) {
-        Room room = getOwnedRoom(id);
+        Room room = getOwnedRoomForUpdate(id);
         if (contractRepository.existsByRoomIdAndStatusAndDeletedAtIsNull(id, ContractStatus.ACTIVE)) {
             throw new BadRequestException("Cannot remove a room with an active contract");
         }
@@ -86,6 +92,12 @@ public class RoomService {
     public Room getOwnedRoom(Long id) {
         Long landlordId = currentUserService.currentUserId();
         return roomRepository.findByIdAndPropertyLandlordIdAndDeletedAtIsNull(id, landlordId)
+            .orElseThrow(() -> new NotFoundException("Room not found"));
+    }
+
+    public Room getOwnedRoomForUpdate(Long id) {
+        Long landlordId = currentUserService.currentUserId();
+        return roomRepository.findOwnedByIdForUpdate(id, landlordId)
             .orElseThrow(() -> new NotFoundException("Room not found"));
     }
 }

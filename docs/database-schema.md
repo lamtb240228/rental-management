@@ -1,5 +1,7 @@
 # Physical Database Schema
 
+> **Trạng thái tài liệu:** đây là thiết kế đích/lịch sử ban đầu, không phải mô tả vật lý chính xác của database đang chạy. Flyway trong `backend/src/main/resources/db/migration` (hiện V1–V6) là nguồn sự thật. Các cột/trạng thái chỉ xuất hiện ở tài liệu này phải được xem là backlog cho đến khi có migration mới tương ứng; không sửa migration đã chạy để ép schema khớp tài liệu.
+
 ## 1. Naming and Data Type Conventions
 
 ### 1.1. Naming Conventions
@@ -3240,11 +3242,5 @@ Các bảng deferred chưa được triển khai trong MVP:
 * `accounting_records`
 * `chat_messages`
 
-Bước tiếp theo của dự án là:
-
-1. Khởi tạo Spring Boot backend.
-2. Cấu hình PostgreSQL.
-3. Cấu hình Flyway.
-4. Chuyển thiết kế database thành các migration SQL.
-5. Chạy migration và kiểm tra database.
+Spring Boot, PostgreSQL và Flyway hiện đã được triển khai. Bước tiếp theo là đối chiếu từng phần thiết kế đích với [backlog P0–P3](product-backlog.md), chỉ bổ sung bằng migration version mới, rồi cập nhật tài liệu sau khi build/test/restore drill thực tế đạt.
 

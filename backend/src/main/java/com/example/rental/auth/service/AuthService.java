@@ -15,8 +15,10 @@ import com.example.rental.common.security.JwtService;
 import com.example.rental.common.security.UserPrincipal;
 import com.example.rental.user.entity.UserAccount;
 import com.example.rental.user.repository.UserAccountRepository;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -51,7 +53,8 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userAccountRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull(request.email())) {
+        String normalizedEmail = normalizeEmail(request.email());
+        if (userAccountRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull(normalizedEmail)) {
             throw new ConflictException("Email is already registered");
         }
 
@@ -59,12 +62,16 @@ public class AuthService {
             .orElseThrow(() -> new NotFoundException("Default LANDLORD role is missing"));
 
         UserAccount user = new UserAccount();
-        user.setEmail(request.email().trim().toLowerCase());
+        user.setEmail(normalizedEmail);
         user.setPasswordHash(passwordEncoder.encode(request.password()));
         user.setFullName(request.fullName().trim());
         user.setPhone(request.phone());
         user.getRoles().add(landlordRole);
-        userAccountRepository.save(user);
+        try {
+            userAccountRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException exception) {
+            throw new ConflictException("Email is already registered");
+        }
 
         UserPrincipal principal = UserPrincipal.from(user);
         return new AuthResponse(jwtService.generateToken(principal), "Bearer", toProfile(user));
@@ -73,7 +80,7 @@ public class AuthService {
     @Transactional
     public AuthResponse login(LoginRequest request) {
         Authentication authentication = authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(request.email(), request.password())
+            new UsernamePasswordAuthenticationToken(normalizeEmail(request.email()), request.password())
         );
         UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
         UserAccount user = userAccountRepository.findById(principal.getId())
@@ -94,5 +101,9 @@ public class AuthService {
             .map(role -> role.getName().name())
             .collect(Collectors.toSet());
         return new UserProfileResponse(user.getId(), user.getEmail(), user.getFullName(), user.getPhone(), roles);
+    }
+
+    private String normalizeEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 }

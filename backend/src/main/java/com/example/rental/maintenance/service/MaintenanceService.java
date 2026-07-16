@@ -3,6 +3,8 @@ package com.example.rental.maintenance.service;
 import com.example.rental.common.exception.BadRequestException;
 import com.example.rental.common.exception.NotFoundException;
 import com.example.rental.common.security.CurrentUserService;
+import com.example.rental.contract.entity.ContractStatus;
+import com.example.rental.contract.repository.RentalContractRepository;
 import com.example.rental.maintenance.dto.MaintenanceRequestCreateRequest;
 import com.example.rental.maintenance.dto.MaintenanceRequestResponse;
 import com.example.rental.maintenance.dto.MaintenanceStatusUpdateRequest;
@@ -27,19 +29,22 @@ public class MaintenanceService {
     private final TenantService tenantService;
     private final UserAccountRepository userAccountRepository;
     private final CurrentUserService currentUserService;
+    private final RentalContractRepository contractRepository;
 
     public MaintenanceService(
         MaintenanceRequestRepository repository,
         RoomService roomService,
         TenantService tenantService,
         UserAccountRepository userAccountRepository,
-        CurrentUserService currentUserService
+        CurrentUserService currentUserService,
+        RentalContractRepository contractRepository
     ) {
         this.repository = repository;
         this.roomService = roomService;
         this.tenantService = tenantService;
         this.userAccountRepository = userAccountRepository;
         this.currentUserService = currentUserService;
+        this.contractRepository = contractRepository;
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +59,9 @@ public class MaintenanceService {
     public MaintenanceRequestResponse create(MaintenanceRequestCreateRequest request) {
         Room room = roomService.getOwnedRoom(request.roomId());
         Tenant tenant = request.tenantId() == null ? null : tenantService.getOwnedTenant(request.tenantId());
+        if (tenant != null) {
+            ensureTenantOccupiesRoom(room, tenant);
+        }
         UserAccount user = userAccountRepository.findById(currentUserService.currentUserId())
             .orElseThrow(() -> new NotFoundException("Current user not found"));
 
@@ -76,6 +84,7 @@ public class MaintenanceService {
         String description,
         MaintenancePriority priority
     ) {
+        ensureTenantOccupiesRoom(room, tenant);
         UserAccount user = userAccountRepository.findById(currentUserService.currentUserId())
             .orElseThrow(() -> new NotFoundException("Current user not found"));
 
@@ -102,6 +111,13 @@ public class MaintenanceService {
         maintenanceRequest.setStatus(request.status());
         maintenanceRequest.setResolutionNotes(request.resolutionNotes());
         return toResponse(maintenanceRequest);
+    }
+
+    private void ensureTenantOccupiesRoom(Room room, Tenant tenant) {
+        if (!contractRepository.existsDistinctByRoomIdAndTenantsTenantIdAndStatusAndDeletedAtIsNull(
+            room.getId(), tenant.getId(), ContractStatus.ACTIVE)) {
+            throw new BadRequestException("Tenant does not have an active contract for this room");
+        }
     }
 
     public MaintenanceRequestResponse toResponse(MaintenanceRequest request) {

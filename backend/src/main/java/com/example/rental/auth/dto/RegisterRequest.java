@@ -10,4 +10,14 @@ public record RegisterRequest(
     @NotBlank @Size(max = 150) String fullName,
     @Size(max = 20) String phone
 ) {
+    public RegisterRequest {
+        email = email == null ? null : email.trim();
+    }
+
+    @Override
+    public String toString() {
+        return "RegisterRequest[email=" + email
+            + ", password=[REDACTED], fullName=" + fullName
+            + ", phone=" + phone + "]";
+    }
 }

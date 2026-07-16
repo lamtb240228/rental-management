@@ -1,150 +1,203 @@
 # Rental Management System
 
-Ứng dụng quản lý phòng trọ theo hướng Modular Monolith Backend + React SPA + PostgreSQL.
+Ứng dụng quản lý dãy phòng trọ theo kiến trúc modular monolith: Spring Boot REST API, React SPA và PostgreSQL. Hệ thống tập trung vào vận hành khu trọ quy mô nhỏ đến vừa, với dữ liệu được phân tách theo chủ trọ.
 
-## Stack
+## Công nghệ
 
-Backend:
-- Java 21, Spring Boot 3.5.15, Maven
-- Spring Web MVC REST, Spring Data JPA, Hibernate
-- PostgreSQL 16, Flyway
-- Spring Security + JWT
-- Jakarta Validation, springdoc-openapi/Swagger, Actuator
-- JUnit 5, Mockito, MockMvc, Spring Security Test, Testcontainers PostgreSQL
+- Backend: Java 21, Spring Boot 3.5, Spring Security/JWT, JPA/Hibernate, Flyway, PostgreSQL 16, Springdoc OpenAPI và Actuator.
+- Frontend: Node.js 24, React 19, TypeScript, Vite, Tailwind CSS, TanStack Query, Axios, React Hook Form và Zod.
+- Kiểm thử: JUnit 5, MockMvc, Testcontainers, Vitest, React Testing Library và Playwright.
+- Triển khai: Docker Compose, image backend nhiều stage và Nginx unprivileged phục vụ SPA/reverse proxy.
 
-Frontend:
-- Node.js 24 LTS, React 19, TypeScript, Vite
-- Tailwind CSS 4, shadcn-style local UI components
-- React Router, TanStack Query, Axios
-- React Hook Form, Zod, Lucide React, date-fns
-- Vitest, React Testing Library, Playwright
+## Phạm vi hiện có
 
-## Structure
+| Nhóm | Chủ trọ | Người thuê | Quản trị hệ thống |
+| --- | --- | --- | --- |
+| Xác thực | Đăng ký, đăng nhập, đăng xuất, hồ sơ | Đăng nhập, đăng xuất, hồ sơ | Đăng nhập, đăng xuất, hồ sơ |
+| Khu trọ/phòng | Tạo, xem, sửa, ngừng hoạt động | Xem phòng đang thuê | Số liệu tổng quan |
+| Người thuê | Tạo, xem, sửa, lịch sử thuê | Xem hồ sơ của mình | Danh sách tài khoản |
+| Hợp đồng | Tạo, xem, chấm dứt | Xem hợp đồng của mình | Số liệu tổng quan |
+| Điện/nước | Ghi và sửa chỉ số, tính lượng dùng/chi phí | Xem chỉ số liên quan | — |
+| Hóa đơn/thanh toán | Tạo hóa đơn, hủy hóa đơn chưa thu, ghi nhận thu tiền | Xem hóa đơn; API đã trả lịch sử thanh toán, UI còn trong backlog | Số liệu tổng quan |
+| Bảo trì | Xem, cập nhật trạng thái/kết quả | Gửi và theo dõi yêu cầu | Tổng yêu cầu chờ xử lý |
+| Tài khoản | — | — | Khóa/mở khóa tài khoản |
 
-```text
-rental-management/
-├── backend/
-│   └── src/main/java/com/example/rental/
-│       ├── common/
-│       ├── admin/
-│       ├── auth/
-│       ├── user/
-│       ├── property/
-│       ├── tenant/
-│       ├── tenantportal/
-│       ├── contract/
-│       ├── billing/
-│       ├── payment/
-│       ├── maintenance/
-│       └── dashboard/
-├── frontend/
-│   └── src/
-│       ├── app/
-│       ├── components/ui/
-│       ├── features/
-│       ├── lib/
-│       └── pages/
-├── docs/
-├── docker-compose.yml
-└── .env.example
+Backend kiểm tra vai trò và quyền sở hữu dữ liệu; frontend có route guard tương ứng. Các ràng buộc quan trọng về hợp đồng đang hoạt động, chỉ số đã lên hóa đơn, quan hệ tenant–room và thanh toán đồng thời được bảo vệ ở service/database.
+
+Đánh giá đầy đủ và phần còn thiếu nằm trong:
+
+- [Phân tích hiện trạng](docs/current-state-analysis.md)
+- [Nghiên cứu sản phẩm](docs/product-research.md)
+- [Backlog P0–P3](docs/product-backlog.md)
+- [Thiết kế database](docs/database-design.md)
+- [Database schema](docs/database-schema.md)
+
+## Cấu hình môi trường
+
+Yêu cầu: Docker Desktop, Java 21 và Node.js 24.
+
+Tạo file cấu hình cục bộ từ mẫu:
+
+```powershell
+Copy-Item .env.example .env
 ```
 
-## Run Locally
+Trước khi chạy, bắt buộc thay:
 
-1. Start PostgreSQL:
+- `POSTGRES_ADMIN_PASSWORD`: mật khẩu bootstrap/operations của PostgreSQL; không cấp cho backend.
+- `DB_APP_PASSWORD`: mật khẩu riêng của role ứng dụng không có quyền superuser.
+- `JWT_SECRET`: chuỗi ngẫu nhiên tối thiểu 32 ký tự.
+- Khi production chưa có ADMIN thật: `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` (12–72 ký tự, có hoa/thường/số/ký hiệu) và `BOOTSTRAP_ADMIN_FULL_NAME`. Sau lần khởi động tạo ADMIN thành công, xóa ba biến bootstrap khỏi environment rồi recreate riêng backend.
 
-```bash
+Không commit `.env`. Database/JWT và bootstrap ADMIN lần đầu fail-closed nếu thiếu hoặc sai cấu hình. Các origin localhost trong file mẫu chỉ dành cho local và bắt buộc phải thay bằng domain thật khi triển khai.
+Các biến hệ điều hành chung `DEBUG`/`TRACE` bị bỏ qua để tránh log request ngoài ý muốn; chỉ dùng `RENTAL_DEBUG`/`RENTAL_TRACE` khi chẩn đoán local. Profile production luôn cưỡng chế tắt hai chế độ này.
+
+Namespace Docker mặc định đã được tách riêng để không đụng project khác:
+
+| Tài nguyên | Giá trị |
+| --- | --- |
+| Compose project | `rental-management-datn1` |
+| Database | `rental_management_datn1_db` |
+| PostgreSQL bootstrap admin | `rental_management_admin` |
+| PostgreSQL application/table/sequence owner | `rental_management_app` (non-superuser) |
+| Host port | `45432` |
+| Volume | `rental-management-datn1_postgres_data` |
+| Network | `rental-management-datn1_rental_network` |
+
+Không dùng `docker compose down -v` khi xử lý lỗi. Xem [hướng dẫn backup/restore và chuyển dữ liệu](docs/database-operations.md).
+
+## Chạy local để phát triển
+
+Từ thư mục gốc:
+
+```powershell
+docker compose config --quiet
 docker compose up -d postgres
+docker compose ps
 ```
 
-2. Start backend:
+Chạy backend:
 
-```bash
-cd backend
-mvnw.cmd spring-boot:run
+```powershell
+Set-Location backend
+.\mvnw.cmd spring-boot:run
 ```
 
-Backend URLs:
+Các URL backend:
+
 - API: `http://localhost:8080/api`
 - Swagger: `http://localhost:8080/swagger-ui.html`
 - Health: `http://localhost:8080/actuator/health`
 
-3. Start frontend:
+Chạy frontend ở terminal khác:
 
-```bash
-cd frontend
-npm.cmd install
+```powershell
+Set-Location frontend
+npm.cmd ci
 npm.cmd run dev
 ```
 
-Frontend URL: `http://localhost:5173`
+Frontend: `http://localhost:5173`.
 
-The backend uses `backend/mvnw.cmd`, so Maven does not need to be installed globally.
+### Dữ liệu demo
 
-Demo accounts after Flyway migrations run:
+`DEMO_DATA_ENABLED=true` chỉ dành cho development/test. Khi bật, ba tài khoản seed được kích hoạt:
 
-| Role | Email | Password | Notes |
-| --- | --- | --- | --- |
-| LANDLORD | `demo@rental.local` | `Password123!` | Main account with seeded property, rooms, tenant, contract, invoice, and maintenance data |
-| ADMIN | `admin@rental.local` | `Password123!` | Auth/role test account |
-| TENANT | `tenant@rental.local` | `Password123!` | Auth/role test account linked to Demo Tenant |
+| Vai trò | Email | Mật khẩu |
+| --- | --- | --- |
+| LANDLORD | `demo@rental.local` | `Password123!` |
+| ADMIN | `admin@rental.local` | `Password123!` |
+| TENANT | `tenant@rental.local` | `Password123!` |
 
-## First Flow
+Migration mới khóa các tài khoản biết trước này theo mặc định. Profile `prod` luôn tắt demo và cưỡng chế khóa lại các tài khoản demo ở mỗi lần khởi động, kể cả khi volume trước đó từng chạy ở development; API quản trị cũng từ chối thay đổi trạng thái các account này khi demo bị tắt. Vì không được sửa V2–V4 đã chạy, database mới vẫn chứa các record mẫu nhận diện được; chúng thuộc tài khoản bị khóa và được loại khỏi danh sách tài khoản/thống kê ADMIN khi demo tắt. Record không bị xóa để giữ tương thích Flyway, nhưng các mã `*-DEMO-*` vẫn được xem là dữ liệu dành riêng. Production phải dùng database/volume riêng và tuyệt đối không kích hoạt lại tài khoản demo.
 
-The implemented landlord workflow is:
+## Luồng vận hành cốt lõi
 
 ```text
-login
-  -> create/update property and room
-  -> create/update tenant
-  -> create/end contract
-  -> record monthly electricity and water readings
-  -> create invoice with rent and utility items
-  -> record one or more payments
-  -> process maintenance requests
+đăng nhập
+  -> tạo khu trọ/phòng
+  -> tạo người thuê
+  -> tạo hợp đồng
+  -> ghi chỉ số điện/nước
+  -> tạo hóa đơn
+  -> ghi nhận một hoặc nhiều lần thanh toán
+  -> tiếp nhận và xử lý bảo trì
 ```
 
-## MVP Feature Status
+## Chạy bằng container
 
-| Area | Landlord | Tenant | Admin |
-| --- | --- | --- | --- |
-| Authentication and role protection | Login/register/logout | Login/logout | Login/logout |
-| Properties and rooms | Create, list, edit, deactivate | View rented room | System totals |
-| Tenants | Create, list, edit, rental history | View own profile | Account list |
-| Contracts | Create and end | View own active contract | System totals |
-| Utility readings | Create, edit, usage and cost calculation | View own readings | - |
-| Invoices | Create, auto-fill rent/utilities, cancel unpaid invoice | View own invoices | System totals |
-| Payments | Record partial/full payments and history | View own payments | - |
-| Maintenance | View and update status/resolution | Submit and track requests | Pending total |
-| Account administration | - | - | Lock and unlock accounts |
+Stack production cơ bản gồm PostgreSQL, backend và frontend/Nginx. Production thật nên dùng file env, Compose project và volume tách khỏi development để dữ liệu demo/kiểm thử không đi chung database:
 
-All business APIs verify record ownership. Direct navigation to a route outside the current role is also redirected by the React application.
+```powershell
+Copy-Item .env.example .env.production
+# Điền hai mật khẩu DB khác nhau, JWT secret, ADMIN bootstrap lần đầu,
+# POSTGRES_DB, origin và port production trong .env.production.
 
-## Tests
+docker compose --env-file .env.production -p rental-management-datn1-prod --profile app config --quiet
+docker compose --env-file .env.production -p rental-management-datn1-prod --profile app up -d --build
+docker compose --env-file .env.production -p rental-management-datn1-prod --profile app ps
+```
+
+Lần khởi động production đầu tiên sẽ thất bại nếu chưa có ADMIN active và thiếu bộ biến bootstrap. Sau khi đăng nhập ADMIN thành công, bỏ ba biến `BOOTSTRAP_ADMIN_*` khỏi secret store/file env và recreate service `backend`; tài khoản đã tạo vẫn được giữ. Không dùng email demo cho bootstrap. PostgreSQL init cũng từ chối nếu admin role và app role trùng tên hoặc dùng cùng mật khẩu.
+
+Giao diện mặc định ở `http://localhost:8081`; health tổng hợp ở `http://localhost:8081/healthz`. Backend không publish port trực tiếp trong profile này và frontend chuyển tiếp `/api` qua network nội bộ.
+
+Trước khi triển khai Internet:
+
+- đặt `CORS_ALLOWED_ORIGINS` đúng domain;
+- đặt `CONTAINER_CORS_ALLOWED_ORIGINS` bằng public origin của frontend container;
+- đặt TLS tại reverse proxy/load balancer biên;
+- nếu Nginx nằm sau load balancer, chỉ cấu hình `real_ip_header`/`set_real_ip_from` cho CIDR của proxy tin cậy; cấu hình mặc định chủ động bỏ forwarded IP do client gửi;
+- dùng secret riêng cho từng môi trường và giới hạn quyền truy cập file env;
+- thực hiện backup/restore drill;
+- dùng storage bền vững, quan sát health/metrics và thiết lập cảnh báo;
+- giữ `DEMO_DATA_ENABLED=false`.
+
+Swagger bị tắt trong profile production; health không lộ chi tiết, metrics yêu cầu vai trò ADMIN.
+
+## Kiểm thử
 
 Backend:
 
-```bash
-cd backend
-mvnw.cmd test
+```powershell
+Push-Location backend
+.\mvnw.cmd clean test
+Pop-Location
 ```
 
 Frontend:
 
-```bash
-cd frontend
-npm.cmd run test
-npm.cmd run test:e2e
+```powershell
+Push-Location frontend
+npm.cmd ci
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd run test:run
+npm.cmd run build
+Pop-Location
 ```
 
-Backend integration tests use Testcontainers PostgreSQL. Playwright is configured for Chromium, Firefox, WebKit, and a Pixel 7 mobile viewport. Docker Desktop must be running because Testcontainers starts a real PostgreSQL 16 instance.
+E2E cần PostgreSQL và backend development đang chạy với demo data:
 
-## Notes
+```powershell
+Push-Location frontend
+npx.cmd playwright install
+npm.cmd run test:e2e
+Pop-Location
+```
 
-- Redis and Quartz are intentionally not added yet.
-- File attachment tables and Cloudinary/S3 integration are deferred until the maintenance or contract attachment workflow needs them.
-- Database migration `V1__init_core_schema.sql` creates the 13 core MVP tables described in `docs/database-schema.md`.
-- Temporary residence, recurring service configuration, dedicated deposit accounting, notifications, asset inventory, and advanced financial reporting belong to the post-MVP roadmap and are not represented as completed features.
+Playwright có project Chromium, Firefox, WebKit và Pixel 7. Không coi E2E thành công nếu browser binary chưa được cài.
 
-## ⚠️ Note: 
-This branch uses AI-assisted development to create a sample prototype of the project. The purpose of this branch is to explore ideas, test implementation approaches, and support the learning process.
+## Quy tắc migration và dữ liệu
+
+- Flyway là nguồn sự thật; Hibernate dùng `ddl-auto: validate`.
+- Không sửa migration đã chạy. Mọi thay đổi schema/seed tiếp theo phải dùng version mới.
+- Không xóa volume để “sửa” kết nối database.
+- Sao lưu trước thay đổi dữ liệu và kiểm tra archive bằng restore thử.
+- Không đưa dữ liệu cá nhân thật, token, password hoặc dump database vào Git.
+
+## Ghi chú phạm vi
+
+Kiến trúc modular monolith hiện tại được giữ nguyên. Các hạng mục như đặt cọc, bàn giao/trả phòng, đơn giá dịch vụ theo thời gian, hóa đơn định kỳ, biên nhận PDF, audit log, thông báo và file đính kèm nằm trong backlog triển khai tiếp theo; hệ thống chưa được tuyên bố là hoàn tất thương mại cho đến khi các acceptance criteria P1/P2 tương ứng được đóng.
+
+Project có sử dụng AI hỗ trợ phát triển để khảo sát, kiểm thử và triển khai mẫu. Mọi thay đổi vẫn cần code review, kiểm thử và kiểm soát vận hành trước khi đưa vào production.

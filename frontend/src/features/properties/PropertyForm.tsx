@@ -26,7 +26,7 @@ export function PropertyForm({
   isSubmitting,
   initialValues,
 }: {
-  onSubmit: (payload: PropertyPayload) => void;
+  onSubmit: (payload: PropertyPayload) => Promise<unknown>;
   isSubmitting: boolean;
   initialValues?: PropertyPayload;
 }) {
@@ -46,9 +46,13 @@ export function PropertyForm({
   return (
     <form
       className="space-y-4"
-      onSubmit={form.handleSubmit((values) => {
-        onSubmit(values);
-        if (!initialValues) form.reset();
+      onSubmit={form.handleSubmit(async (values) => {
+        try {
+          await onSubmit(values);
+          if (!initialValues) form.reset();
+        } catch {
+          // The mutation owns the visible error state; keep the form intact.
+        }
       })}
     >
       <div className="space-y-2">

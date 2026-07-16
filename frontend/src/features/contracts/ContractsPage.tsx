@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CalendarX2, RefreshCw } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -39,28 +39,13 @@ export function ContractsPage() {
   const propertiesQuery = useQuery({ queryKey: ["properties"], queryFn: listProperties });
   const tenantsQuery = useQuery({ queryKey: ["tenants"], queryFn: listTenants });
   const [form, setForm] = useState(initialFormState);
+  const selectedPropertyId = form.propertyId ?? propertiesQuery.data?.[0]?.id;
 
-  const selectedProperty = propertiesQuery.data?.find((property) => property.id === form.propertyId) ?? null;
   const roomsQuery = useQuery({
-    queryKey: ["properties", form.propertyId, "rooms"],
-    queryFn: () => (form.propertyId ? listRooms(form.propertyId) : Promise.resolve([])),
-    enabled: Boolean(form.propertyId),
+    queryKey: ["properties", selectedPropertyId, "rooms"],
+    queryFn: () => listRooms(selectedPropertyId!),
+    enabled: selectedPropertyId != null,
   });
-
-  useEffect(() => {
-    if (!form.propertyId && propertiesQuery.data?.length) {
-      setForm((current) => ({ ...current, propertyId: propertiesQuery.data![0].id }));
-    }
-  }, [propertiesQuery.data, form.propertyId]);
-
-  useEffect(() => {
-    if (form.roomId && roomsQuery.data) {
-      const room = roomsQuery.data.find((item) => item.id === form.roomId);
-      if (room && !form.monthlyRent) {
-        setForm((current) => ({ ...current, monthlyRent: room.monthlyRent }));
-      }
-    }
-  }, [form.roomId, form.monthlyRent, roomsQuery.data]);
 
   const roomOptions = (roomsQuery.data ?? []).filter((room) => room.status === "AVAILABLE");
   const tenantOptions = (tenantsQuery.data ?? []).filter((tenant) => tenant.status === "ACTIVE");
@@ -98,9 +83,24 @@ export function ContractsPage() {
     });
   }
 
+  function selectRoom(roomId: number) {
+    const room = roomOptions.find((item) => item.id === roomId);
+    setForm((current) => ({
+      ...current,
+      roomId,
+      monthlyRent: room ? Number(room.monthlyRent) : 0,
+    }));
+  }
+
+  function confirmEndContract(id: number, contractCode: string) {
+    if (window.confirm(`Kết thúc hợp đồng ${contractCode}? Thao tác này sẽ cập nhật trạng thái phòng.`)) {
+      endContractMutation.mutate(id);
+    }
+  }
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!form.propertyId || !form.roomId || !form.startDate || form.monthlyRent < 0 || form.depositAmount < 0 || !form.tenantIds.length || !form.primaryTenantId) {
+    if (!selectedPropertyId || !form.roomId || !form.startDate || form.monthlyRent < 0 || form.depositAmount < 0 || !form.tenantIds.length || !form.primaryTenantId) {
       return;
     }
     createContractMutation.mutate({
@@ -143,8 +143,13 @@ export function ContractsPage() {
                   <Label htmlFor="property">Khu trọ</Label>
                   <Select
                     id="property"
-                    value={form.propertyId ?? ""}
-                    onChange={(event) => setForm({ ...form, propertyId: Number(event.target.value), roomId: 0 })}
+                    value={selectedPropertyId ?? ""}
+                    onChange={(event) => setForm((current) => ({
+                      ...current,
+                      propertyId: Number(event.target.value),
+                      roomId: 0,
+                      monthlyRent: 0,
+                    }))}
                   >
                     {propertiesQuery.data?.map((property) => (
                       <option key={property.id} value={property.id}>
@@ -158,7 +163,7 @@ export function ContractsPage() {
                   <Select
                     id="room"
                     value={form.roomId ?? ""}
-                    onChange={(event) => setForm({ ...form, roomId: Number(event.target.value) })}
+                    onChange={(event) => selectRoom(Number(event.target.value))}
                     disabled={!roomOptions.length}
                   >
                     <option value="">Chọn phòng</option>
@@ -314,7 +319,7 @@ export function ContractsPage() {
                       </Td>
                       <Td>
                         {contract.status === "ACTIVE" && (
-                          <Button variant="secondary" size="sm" disabled={endContractMutation.isPending} onClick={() => endContractMutation.mutate(contract.id)}>
+                          <Button variant="secondary" size="sm" disabled={endContractMutation.isPending} onClick={() => confirmEndContract(contract.id, contract.contractCode)}>
                             <CalendarX2 className="h-4 w-4" />Kết thúc
                           </Button>
                         )}
@@ -323,7 +328,7 @@ export function ContractsPage() {
                   ))}
                   {contractsQuery.data?.length === 0 && (
                     <tr>
-                      <Td colSpan={6} className="text-zinc-500">
+                      <Td colSpan={7} className="text-zinc-500">
                         Chưa có hợp đồng.
                       </Td>
                     </tr>
@@ -355,7 +360,7 @@ export function ContractsPage() {
                       <p className="mt-1 text-sm font-semibold text-zinc-950">{formatCurrency(Number(contract.monthlyRent))}</p>
                     </div>
                     {contract.status === "ACTIVE" && (
-                      <Button className="col-span-2" variant="secondary" disabled={endContractMutation.isPending} onClick={() => endContractMutation.mutate(contract.id)}>
+                      <Button className="col-span-2" variant="secondary" disabled={endContractMutation.isPending} onClick={() => confirmEndContract(contract.id, contract.contractCode)}>
                         <CalendarX2 className="h-4 w-4" />Kết thúc hợp đồng
                       </Button>
                     )}

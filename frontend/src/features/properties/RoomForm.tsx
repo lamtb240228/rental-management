@@ -30,7 +30,7 @@ export function RoomForm({
   initialValues,
 }: {
   disabled: boolean;
-  onSubmit: (payload: RoomPayload) => void;
+  onSubmit: (payload: RoomPayload) => Promise<unknown>;
   isSubmitting: boolean;
   initialValues?: RoomPayload;
 }) {
@@ -51,9 +51,13 @@ export function RoomForm({
   return (
     <form
       className="space-y-4"
-      onSubmit={form.handleSubmit((values) => {
-        onSubmit(values);
-        if (!initialValues) form.reset();
+      onSubmit={form.handleSubmit(async (values) => {
+        try {
+          await onSubmit(values);
+          if (!initialValues) form.reset();
+        } catch {
+          // The mutation owns the visible error state; keep the form intact.
+        }
       })}
     >
       <div className="grid gap-3 sm:grid-cols-2">

@@ -40,33 +40,26 @@ export function UtilitiesPage() {
   const [form, setForm] = useState<UtilityReadingPayload>(emptyReading);
 
   const propertiesQuery = useQuery({ queryKey: ["properties"], queryFn: listProperties });
+  const selectedPropertyId = propertyId ?? propertiesQuery.data?.[0]?.id;
   const roomsQuery = useQuery({
-    queryKey: ["properties", propertyId, "rooms"],
-    queryFn: () => listRooms(propertyId!),
-    enabled: propertyId != null,
+    queryKey: ["properties", selectedPropertyId, "rooms"],
+    queryFn: () => listRooms(selectedPropertyId!),
+    enabled: selectedPropertyId != null,
   });
+  const selectedRoomId = roomsQuery.data?.some((room) => room.id === roomId)
+    ? roomId
+    : roomsQuery.data?.[0]?.id;
   const readingsQuery = useQuery({
-    queryKey: ["utility-readings", roomId],
-    queryFn: () => listUtilityReadings(roomId!),
-    enabled: roomId != null,
+    queryKey: ["utility-readings", selectedRoomId],
+    queryFn: () => listUtilityReadings(selectedRoomId!),
+    enabled: selectedRoomId != null,
   });
-
-  useEffect(() => {
-    if (propertyId == null && propertiesQuery.data?.length) {
-      setPropertyId(propertiesQuery.data[0].id);
-    }
-  }, [propertiesQuery.data, propertyId]);
-
-  useEffect(() => {
-    const rooms = roomsQuery.data ?? [];
-    if (!rooms.some((room) => room.id === roomId)) {
-      setRoomId(rooms[0]?.id ?? null);
-    }
-  }, [roomId, roomsQuery.data]);
 
   useEffect(() => {
     if (editingId || !readingsQuery.data?.length) return;
     const latest = readingsQuery.data[0];
+    // Server readings intentionally initialize the next entry form.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setForm((current) => ({
       ...current,
       electricityOldReading: Number(latest.electricityNewReading),
@@ -76,14 +69,14 @@ export function UtilitiesPage() {
       waterNewReading: Number(latest.waterNewReading),
       waterUnitPrice: Number(latest.waterUnitPrice),
     }));
-  }, [editingId, readingsQuery.data, roomId]);
+  }, [editingId, readingsQuery.data, selectedRoomId]);
 
   const saveMutation = useMutation({
     mutationFn: () => editingId
       ? updateUtilityReading(editingId, form)
-      : createUtilityReading(roomId!, form),
+      : createUtilityReading(selectedRoomId!, form),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["utility-readings", roomId] });
+      queryClient.invalidateQueries({ queryKey: ["utility-readings", selectedRoomId] });
       setEditingId(null);
       setForm(emptyReading());
     },
@@ -93,8 +86,8 @@ export function UtilitiesPage() {
   const waterUsage = Math.max(0, form.waterNewReading - form.waterOldReading);
   const estimatedTotal = electricityUsage * form.electricityUnitPrice + waterUsage * form.waterUnitPrice;
   const selectedRoom = useMemo(
-    () => roomsQuery.data?.find((room) => room.id === roomId),
-    [roomId, roomsQuery.data],
+    () => roomsQuery.data?.find((room) => room.id === selectedRoomId),
+    [roomsQuery.data, selectedRoomId],
   );
 
   function beginEdit(reading: NonNullable<typeof readingsQuery.data>[number]) {
@@ -115,6 +108,11 @@ export function UtilitiesPage() {
     setForm((current) => ({ ...current, [key]: Number(value) }));
   }
 
+  function resetReadingEditor() {
+    setEditingId(null);
+    setForm(emptyReading());
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -132,13 +130,20 @@ export function UtilitiesPage() {
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                 <div className="space-y-2">
                   <Label htmlFor="utility-property">Khu trọ</Label>
-                  <Select id="utility-property" value={propertyId ?? ""} onChange={(event) => { setPropertyId(Number(event.target.value)); setRoomId(null); }}>
+                  <Select id="utility-property" value={selectedPropertyId ?? ""} onChange={(event) => {
+                    setPropertyId(Number(event.target.value));
+                    setRoomId(null);
+                    resetReadingEditor();
+                  }}>
                     {propertiesQuery.data?.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="utility-room">Phòng</Label>
-                  <Select id="utility-room" value={roomId ?? ""} onChange={(event) => { setRoomId(Number(event.target.value)); setEditingId(null); }}>
+                  <Select id="utility-room" value={selectedRoomId ?? ""} onChange={(event) => {
+                    setRoomId(Number(event.target.value));
+                    resetReadingEditor();
+                  }}>
                     {(roomsQuery.data ?? []).map((room) => <option key={room.id} value={room.id}>{room.roomNumber}</option>)}
                   </Select>
                 </div>
@@ -159,7 +164,7 @@ export function UtilitiesPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button className="flex-1" disabled={!roomId || saveMutation.isPending}><Gauge className="h-4 w-4" />{editingId ? "Lưu thay đổi" : "Lưu chỉ số"}</Button>
+                <Button className="flex-1" disabled={!selectedRoomId || saveMutation.isPending}><Gauge className="h-4 w-4" />{editingId ? "Lưu thay đổi" : "Lưu chỉ số"}</Button>
                 {editingId && <Button type="button" variant="secondary" size="icon" title="Hủy chỉnh sửa" onClick={() => { setEditingId(null); setForm(emptyReading()); }}><X className="h-4 w-4" /></Button>}
               </div>
               {saveMutation.isError && <p className="text-sm text-red-600">Không thể lưu. Hãy kiểm tra kỳ và chỉ số mới.</p>}
@@ -192,7 +197,7 @@ export function UtilitiesPage() {
                 </div>
               ))}
             </div>
-            {roomId && readingsQuery.data?.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Phòng này chưa có chỉ số điện nước.</p>}
+            {selectedRoomId && readingsQuery.data?.length === 0 && <p className="py-8 text-center text-sm text-zinc-500">Phòng này chưa có chỉ số điện nước.</p>}
           </CardContent>
         </Card>
       </div>

@@ -1,20 +1,122 @@
+name: ${COMPOSE_PROJECT_NAME:-rental-management-datn1}
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: rental-management-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: rental_management
-      POSTGRES_USER: rental
-      POSTGRES_PASSWORD: rental
+      POSTGRES_DB: ${POSTGRES_DB:-rental_management_datn1_db}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-rental_management_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD in .env}
+      DB_APP_USER: ${DB_APP_USER:-rental_management_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Set DB_APP_PASSWORD in .env}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-45432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - rental_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rental -d rental_management"]
+      test:
+        - CMD-SHELL
+        - >-
+          test "$${POSTGRES_USER}" != "$${DB_APP_USER}" &&
+          test "$${POSTGRES_PASSWORD}" != "$${DB_APP_PASSWORD}" &&
+          PGPASSWORD="$${DB_APP_PASSWORD}" psql --host="$${HOSTNAME}"
+          --username="$${DB_APP_USER}" --dbname="$${POSTGRES_DB}"
+          --tuples-only --no-align
+          --command="SELECT NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls) FROM pg_roles WHERE rolname = current_user"
+          | grep -qx t
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  backend:
+    profiles: ["app"]
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-rental_management_datn1_db}
+      SPRING_DATASOURCE_USERNAME: ${DB_APP_USER:-rental_management_app}
+      SPRING_DATASOURCE_PASSWORD: ${DB_APP_PASSWORD:?Set DB_APP_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRATION_MINUTES: ${JWT_EXPIRATION_MINUTES:-480}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_FULL_NAME: ${BOOTSTRAP_ADMIN_FULL_NAME:-}
+      CORS_ALLOWED_ORIGINS: ${CONTAINER_CORS_ALLOWED_ORIGINS:-http://localhost:8081}
+      DEMO_DATA_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    networks:
+      - rental_network
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 40s
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  frontend:
+    profiles: ["app"]
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8081}:8080"
+    networks:
+      - rental_network
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 volumes:
   postgres_data:
+    driver: local
+
+networks:
+  rental_network:
+    driver: bridge

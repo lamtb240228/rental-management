@@ -66,7 +66,11 @@ public class TenantService {
 
     @Transactional
     public TenantResponse update(Long id, TenantRequest request) {
-        Tenant tenant = getOwnedTenant(id);
+        Tenant tenant = getOwnedTenantForUpdate(id);
+        if (request.status() == TenantStatus.INACTIVE
+            && contractRepository.existsDistinctByTenantsTenantIdAndStatusAndDeletedAtIsNull(id, ContractStatus.ACTIVE)) {
+            throw new BadRequestException("Cannot deactivate a tenant with an active contract");
+        }
         ensureIdentityUnique(currentUserService.currentUserId(), request.identityNumber(), tenant.getIdentityNumber());
         apply(tenant, request);
         return toResponse(tenant);
@@ -74,7 +78,7 @@ public class TenantService {
 
     @Transactional
     public void delete(Long id) {
-        Tenant tenant = getOwnedTenant(id);
+        Tenant tenant = getOwnedTenantForUpdate(id);
         if (contractRepository.existsDistinctByTenantsTenantIdAndStatusAndDeletedAtIsNull(id, ContractStatus.ACTIVE)) {
             throw new BadRequestException("Cannot remove a tenant with an active contract");
         }
@@ -89,6 +93,11 @@ public class TenantService {
     public Tenant getCurrentTenant() {
         return tenantRepository.findByUserAccountIdAndDeletedAtIsNull(currentUserService.currentUserId())
             .orElseThrow(() -> new NotFoundException("Tenant profile not found"));
+    }
+
+    private Tenant getOwnedTenantForUpdate(Long id) {
+        return tenantRepository.findOwnedByIdForUpdate(id, currentUserService.currentUserId())
+            .orElseThrow(() -> new NotFoundException("Tenant not found"));
     }
 
     private void ensureIdentityUnique(Long landlordId, String identityNumber, String currentIdentityNumber) {

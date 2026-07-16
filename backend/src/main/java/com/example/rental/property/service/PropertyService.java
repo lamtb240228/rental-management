@@ -10,6 +10,7 @@ import com.example.rental.property.repository.RoomRepository;
 import com.example.rental.property.dto.PropertyRequest;
 import com.example.rental.property.dto.PropertyResponse;
 import com.example.rental.property.entity.Property;
+import com.example.rental.property.entity.PropertyStatus;
 import com.example.rental.property.mapper.PropertyMapper;
 import com.example.rental.property.repository.PropertyRepository;
 import com.example.rental.user.entity.UserAccount;
@@ -69,14 +70,18 @@ public class PropertyService {
 
     @Transactional
     public PropertyResponse update(Long id, PropertyRequest request) {
-        Property property = getOwnedProperty(id);
+        Property property = getOwnedPropertyForUpdate(id);
+        if (request.status() == PropertyStatus.INACTIVE
+            && contractRepository.existsByRoomPropertyIdAndStatusAndDeletedAtIsNull(id, ContractStatus.ACTIVE)) {
+            throw new BadRequestException("Cannot deactivate a property with active contracts");
+        }
         PropertyMapper.apply(property, request);
         return PropertyMapper.toResponse(property);
     }
 
     @Transactional
     public void delete(Long id) {
-        Property property = getOwnedProperty(id);
+        Property property = getOwnedPropertyForUpdate(id);
         if (contractRepository.existsByRoomPropertyIdAndStatusAndDeletedAtIsNull(id, ContractStatus.ACTIVE)) {
             throw new BadRequestException("Cannot remove a property with active contracts");
         }
@@ -90,6 +95,12 @@ public class PropertyService {
     public Property getOwnedProperty(Long id) {
         Long landlordId = currentUserService.currentUserId();
         return propertyRepository.findByIdAndLandlordIdAndDeletedAtIsNull(id, landlordId)
+            .orElseThrow(() -> new NotFoundException("Property not found"));
+    }
+
+    public Property getOwnedPropertyForUpdate(Long id) {
+        Long landlordId = currentUserService.currentUserId();
+        return propertyRepository.findOwnedByIdForUpdate(id, landlordId)
             .orElseThrow(() -> new NotFoundException("Property not found"));
     }
 }

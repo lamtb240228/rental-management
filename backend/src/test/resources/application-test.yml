@@ -6,6 +6,8 @@ spring:
     enabled: true
 
 app:
+  demo-data:
+    enabled: true
   jwt:
     secret: test-secret-change-this-value-to-at-least-32-characters
     expiration-minutes: 60

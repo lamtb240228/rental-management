@@ -93,7 +93,9 @@ export function PropertiesPage() {
                 key={editingProperty ? `edit-${selectedPropertyId}` : "create-property"}
                 initialValues={editingProperty && selectedProperty ? selectedProperty : undefined}
                 isSubmitting={createPropertyMutation.isPending || updatePropertyMutation.isPending}
-                onSubmit={(payload) => editingProperty ? updatePropertyMutation.mutate(payload) : createPropertyMutation.mutate(payload)}
+                onSubmit={(payload) => editingProperty
+                  ? updatePropertyMutation.mutateAsync(payload)
+                  : createPropertyMutation.mutateAsync(payload)}
               />
             </CardContent>
           </Card>
@@ -198,7 +200,9 @@ export function PropertiesPage() {
                 disabled={!selectedPropertyId}
                 initialValues={editingRoom ?? undefined}
                 isSubmitting={createRoomMutation.isPending || updateRoomMutation.isPending}
-                onSubmit={(payload) => editingRoom ? updateRoomMutation.mutate(payload) : createRoomMutation.mutate(payload)}
+                onSubmit={(payload) => editingRoom
+                  ? updateRoomMutation.mutateAsync(payload)
+                  : createRoomMutation.mutateAsync(payload)}
               />
             </CardContent>
           </Card>

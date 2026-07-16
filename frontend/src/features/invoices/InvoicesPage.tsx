@@ -19,7 +19,7 @@ import { listUtilityReadings } from "../utilities/utilityApi";
 const invoiceItemTypes = ["RENT", "ELECTRICITY", "WATER", "SERVICE", "OTHER"] as const;
 
 const emptyItem = (): InvoiceItemPayload => ({
-  itemType: "RENT",
+  itemType: "OTHER",
   description: "",
   quantity: 1,
   unitPrice: 0,
@@ -34,7 +34,7 @@ export function InvoicesPage() {
   const [dueDate, setDueDate] = useState("");
   const [discountAmount, setDiscountAmount] = useState(0);
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<InvoiceItemPayload[]>([emptyItem()]);
+  const [items, setItems] = useState<InvoiceItemPayload[]>([]);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [payment, setPayment] = useState<PaymentPayload>({ amount: 0, paymentMethod: "BANK_TRANSFER", transactionReference: "", note: "" });
 
@@ -48,7 +48,7 @@ export function InvoicesPage() {
       setDueDate("");
       setDiscountAmount(0);
       setNotes("");
-      setItems([emptyItem()]);
+      setItems([]);
     },
   });
 
@@ -61,8 +61,12 @@ export function InvoicesPage() {
     () => Object.fromEntries(contractsQuery.data?.map((item) => [item.id, item.contractCode]) ?? []),
     [contractsQuery.data],
   );
+  const activeContracts = useMemo(
+    () => contractsQuery.data?.filter((contract) => contract.status === "ACTIVE") ?? [],
+    [contractsQuery.data],
+  );
 
-  const selectedContract = contractsQuery.data?.find((item) => item.id === contractId);
+  const selectedContract = activeContracts.find((item) => item.id === contractId);
   const utilityQuery = useQuery({
     queryKey: ["utility-readings", selectedContract?.roomId],
     queryFn: () => listUtilityReadings(selectedContract!.roomId),
@@ -81,7 +85,12 @@ export function InvoicesPage() {
     const nextItems: InvoiceItemPayload[] = [{ itemType: "RENT", description: "Tiền phòng", quantity: 1, unitPrice: Number(selectedContract.monthlyRent) }];
     if (reading && Number(reading.electricityUsage) > 0) nextItems.push({ itemType: "ELECTRICITY", description: "Tiền điện", quantity: Number(reading.electricityUsage), unitPrice: Number(reading.electricityUnitPrice) });
     if (reading && Number(reading.waterUsage) > 0) nextItems.push({ itemType: "WATER", description: "Tiền nước", quantity: Number(reading.waterUsage), unitPrice: Number(reading.waterUnitPrice) });
-    setItems(nextItems);
+    // Rebuild server-derived charges while retaining user-entered services.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setItems((current) => [
+      ...nextItems,
+      ...current.filter((item) => item.itemType === "SERVICE" || item.itemType === "OTHER"),
+    ]);
   }, [billingMonth, billingYear, selectedContract, utilityQuery.data]);
 
   const paymentMutation = useMutation({
@@ -123,6 +132,12 @@ export function InvoicesPage() {
     setPayment((current) => ({ ...current, amount: Math.max(0, Number(invoice.totalAmount) - Number(invoice.paidAmount)) }));
   }
 
+  function confirmCancelInvoice(id: number, invoiceNumber: string) {
+    if (window.confirm(`Hủy hóa đơn ${invoiceNumber}? Hóa đơn đã hủy không thể thu tiền.`)) {
+      cancelMutation.mutate(id);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -152,12 +167,15 @@ export function InvoicesPage() {
                   onChange={(event) => setContractId(Number(event.target.value))}
                 >
                   <option value="">Chọn hợp đồng</option>
-                  {contractsQuery.data?.map((contract) => (
+                  {activeContracts.map((contract) => (
                     <option key={contract.id} value={contract.id}>
                       {contract.contractCode} — {contract.roomNumber}
                     </option>
                   ))}
                 </Select>
+                {!contractsQuery.isLoading && activeContracts.length === 0 && (
+                  <p className="text-xs text-amber-700">Chỉ hợp đồng đang hoạt động mới có thể lập hóa đơn.</p>
+                )}
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
@@ -231,7 +249,8 @@ export function InvoicesPage() {
                       <Label>Số lượng</Label>
                       <Input
                         type="number"
-                        min={1}
+                        min={0.01}
+                        step="0.01"
                         value={item.quantity}
                         onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}
                       />
@@ -245,7 +264,7 @@ export function InvoicesPage() {
                           value={item.unitPrice}
                           onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
                         />
-                        <Button type="button" variant="ghost" size="icon" onClick={() => setItems((current) => current.filter((_, idx) => idx !== index))}>
+                        <Button type="button" variant="ghost" size="icon" title="Xóa dòng" onClick={() => setItems((current) => current.filter((_, idx) => idx !== index))}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -315,13 +334,13 @@ export function InvoicesPage() {
                       </Td>
                       <Td><div className="flex gap-1">
                         <Button variant="secondary" size="sm" disabled={invoice.status === "PAID" || invoice.status === "CANCELLED"} onClick={() => choosePayment(invoice)}><CreditCard className="h-4 w-4" />Thu tiền</Button>
-                        {Number(invoice.paidAmount) === 0 && invoice.status !== "CANCELLED" && <Button variant="ghost" size="icon" title="Hủy hóa đơn" onClick={() => cancelMutation.mutate(invoice.id)}><Ban className="h-4 w-4" /></Button>}
+                        {Number(invoice.paidAmount) === 0 && invoice.status !== "CANCELLED" && <Button variant="ghost" size="icon" title="Hủy hóa đơn" disabled={cancelMutation.isPending} onClick={() => confirmCancelInvoice(invoice.id, invoice.invoiceNumber)}><Ban className="h-4 w-4" /></Button>}
                       </div></Td>
                     </tr>
                   ))}
                   {invoicesQuery.data?.length === 0 && (
                     <tr>
-                      <Td colSpan={6} className="text-zinc-500">
+                      <Td colSpan={7} className="text-zinc-500">
                         Chưa có hóa đơn.
                       </Td>
                     </tr>
@@ -354,7 +373,7 @@ export function InvoicesPage() {
                     </div>
                     <div className="col-span-2 flex gap-2">
                       <Button className="flex-1" variant="secondary" disabled={invoice.status === "PAID" || invoice.status === "CANCELLED"} onClick={() => choosePayment(invoice)}><CreditCard className="h-4 w-4" />Thu tiền</Button>
-                      {Number(invoice.paidAmount) === 0 && invoice.status !== "CANCELLED" && <Button variant="ghost" size="icon" title="Hủy hóa đơn" onClick={() => cancelMutation.mutate(invoice.id)}><Ban className="h-4 w-4" /></Button>}
+                      {Number(invoice.paidAmount) === 0 && invoice.status !== "CANCELLED" && <Button variant="ghost" size="icon" title="Hủy hóa đơn" disabled={cancelMutation.isPending} onClick={() => confirmCancelInvoice(invoice.id, invoice.invoiceNumber)}><Ban className="h-4 w-4" /></Button>}
                     </div>
                   </div>
                 </div>

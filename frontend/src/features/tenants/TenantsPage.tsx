@@ -25,6 +25,11 @@ const emptyTenant = (): TenantPayload => ({
   status: "ACTIVE",
 });
 
+function maskIdentityNumber(identityNumber?: string) {
+  if (!identityNumber) return "—";
+  return `••••••${identityNumber.slice(-4)}`;
+}
+
 export function TenantsPage() {
   const [form, setForm] = useState<TenantPayload>(emptyTenant);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -111,7 +116,7 @@ export function TenantsPage() {
             <div className="hidden overflow-x-auto sm:block">
               <Table><thead><tr><Th>Họ tên</Th><Th>Liên hệ</Th><Th>CCCD</Th><Th>Trạng thái</Th><Th>Thao tác</Th></tr></thead>
                 <tbody>{(tenantsQuery.data ?? []).map((tenant) => (
-                  <tr key={tenant.id}><Td className="font-medium text-zinc-950">{tenant.fullName}</Td><Td><p>{tenant.phone ?? "—"}</p><p className="text-xs text-zinc-500">{tenant.email ?? "—"}</p></Td><Td>{tenant.identityNumber ?? "—"}</Td><Td><Badge>{tenant.status}</Badge></Td><Td>{rowActions(tenant)}</Td></tr>
+                  <tr key={tenant.id}><Td className="font-medium text-zinc-950">{tenant.fullName}</Td><Td><p>{tenant.phone ?? "—"}</p><p className="text-xs text-zinc-500">{tenant.email ?? "—"}</p></Td><Td>{maskIdentityNumber(tenant.identityNumber)}</Td><Td><Badge>{tenant.status}</Badge></Td><Td>{rowActions(tenant)}</Td></tr>
                 ))}</tbody>
               </Table>
             </div>
@@ -119,7 +124,7 @@ export function TenantsPage() {
               {(tenantsQuery.data ?? []).map((tenant) => (
                 <div key={tenant.id} className="rounded-lg border border-zinc-200 bg-white p-4">
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{tenant.fullName}</p><p className="mt-1 break-all text-xs text-zinc-500">{tenant.email ?? "Không có email"}</p></div><Badge>{tenant.status}</Badge></div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg bg-slate-50 p-3"><span className="text-xs text-zinc-500">Điện thoại</span><p>{tenant.phone ?? "—"}</p></div><div className="rounded-lg bg-slate-50 p-3"><span className="text-xs text-zinc-500">CCCD</span><p className="break-all">{tenant.identityNumber ?? "—"}</p></div></div>
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg bg-slate-50 p-3"><span className="text-xs text-zinc-500">Điện thoại</span><p>{tenant.phone ?? "—"}</p></div><div className="rounded-lg bg-slate-50 p-3"><span className="text-xs text-zinc-500">CCCD</span><p className="break-all">{maskIdentityNumber(tenant.identityNumber)}</p></div></div>
                   <div className="mt-3">{rowActions(tenant)}</div>
                 </div>
               ))}

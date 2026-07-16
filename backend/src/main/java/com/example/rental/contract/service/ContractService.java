@@ -12,8 +12,11 @@ import com.example.rental.contract.entity.RentalContract;
 import com.example.rental.contract.repository.RentalContractRepository;
 import com.example.rental.property.entity.Room;
 import com.example.rental.property.entity.RoomStatus;
+import com.example.rental.property.entity.PropertyStatus;
+import com.example.rental.property.service.PropertyService;
 import com.example.rental.property.service.RoomService;
 import com.example.rental.tenant.entity.Tenant;
+import com.example.rental.tenant.entity.TenantStatus;
 import com.example.rental.tenant.repository.TenantRepository;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -28,17 +31,20 @@ public class ContractService {
     private final RentalContractRepository contractRepository;
     private final TenantRepository tenantRepository;
     private final RoomService roomService;
+    private final PropertyService propertyService;
     private final CurrentUserService currentUserService;
 
     public ContractService(
         RentalContractRepository contractRepository,
         TenantRepository tenantRepository,
         RoomService roomService,
+        PropertyService propertyService,
         CurrentUserService currentUserService
     ) {
         this.contractRepository = contractRepository;
         this.tenantRepository = tenantRepository;
         this.roomService = roomService;
+        this.propertyService = propertyService;
         this.currentUserService = currentUserService;
     }
 
@@ -73,11 +79,22 @@ public class ContractService {
             throw new BadRequestException("Contract end date must be after start date");
         }
 
-        Room room = roomService.getOwnedRoom(request.roomId());
+        Room roomReference = roomService.getOwnedRoom(request.roomId());
+        propertyService.getOwnedPropertyForUpdate(roomReference.getProperty().getId());
+        Room room = roomService.getOwnedRoomForUpdate(request.roomId());
         ContractStatus status = request.status() == null ? ContractStatus.ACTIVE : request.status();
         if (status == ContractStatus.ACTIVE) {
-            if (room.getStatus() == RoomStatus.MAINTENANCE || room.getStatus() == RoomStatus.INACTIVE) {
-                throw new BadRequestException("Cannot create active contract for maintenance or inactive room");
+            if (room.getProperty().getStatus() != PropertyStatus.ACTIVE) {
+                throw new BadRequestException("Cannot create an active contract for an inactive property");
+            }
+            if (room.getStatus() != RoomStatus.AVAILABLE) {
+                throw new BadRequestException("An active contract requires an available room");
+            }
+            if (request.startDate().isAfter(LocalDate.now())) {
+                throw new BadRequestException("Active contract start date cannot be in the future");
+            }
+            if (request.endDate() != null && request.endDate().isBefore(LocalDate.now())) {
+                throw new BadRequestException("Active contract end date cannot be in the past");
             }
             if (contractRepository.existsByRoomIdAndStatusAndDeletedAtIsNull(room.getId(), ContractStatus.ACTIVE)) {
                 throw new ConflictException("Room already has an active contract");
@@ -90,9 +107,12 @@ public class ContractService {
             throw new BadRequestException("Primary tenant must be included in tenantIds");
         }
 
-        List<Tenant> tenants = tenantRepository.findByIdInAndLandlordIdAndDeletedAtIsNull(tenantIds, currentUserService.currentUserId());
+        List<Tenant> tenants = tenantRepository.findAllOwnedByIdForUpdate(tenantIds, currentUserService.currentUserId());
         if (tenants.size() != tenantIds.size()) {
             throw new BadRequestException("One or more tenants are invalid");
+        }
+        if (status == ContractStatus.ACTIVE && tenants.stream().anyMatch(tenant -> tenant.getStatus() != TenantStatus.ACTIVE)) {
+            throw new BadRequestException("An active contract requires active tenants");
         }
 
         RentalContract contract = new RentalContract();
@@ -116,13 +136,16 @@ public class ContractService {
 
     @Transactional
     public ContractResponse end(Long id, LocalDate endDate) {
-        RentalContract contract = getOwnedContract(id);
+        RentalContract contract = getOwnedContractForRoomUpdate(id);
         if (contract.getStatus() != ContractStatus.ACTIVE) {
             throw new BadRequestException("Only an active contract can be ended");
         }
         LocalDate resolvedEndDate = endDate == null ? LocalDate.now() : endDate;
         if (!resolvedEndDate.isAfter(contract.getStartDate())) {
             throw new BadRequestException("Contract end date must be after start date");
+        }
+        if (resolvedEndDate.isAfter(LocalDate.now())) {
+            throw new BadRequestException("Contract end date cannot be in the future");
         }
         contract.setStatus(ContractStatus.ENDED);
         contract.setEndDate(resolvedEndDate);
@@ -134,6 +157,19 @@ public class ContractService {
     public RentalContract getOwnedContract(Long id) {
         return contractRepository.findByIdAndRoomPropertyLandlordIdAndDeletedAtIsNull(id, currentUserService.currentUserId())
             .orElseThrow(() -> new NotFoundException("Contract not found"));
+    }
+
+    @Transactional
+    public RentalContract getOwnedContractForRoomUpdate(Long id) {
+        RentalContract reference = getOwnedContract(id);
+        propertyService.getOwnedPropertyForUpdate(reference.getRoom().getProperty().getId());
+        Room room = roomService.getOwnedRoomForUpdate(reference.getRoom().getId());
+        RentalContract locked = contractRepository.findOwnedByIdForUpdate(id, currentUserService.currentUserId())
+            .orElseThrow(() -> new NotFoundException("Contract not found"));
+        if (!locked.getRoom().getId().equals(room.getId())) {
+            throw new ConflictException("Contract room changed while the contract was being updated");
+        }
+        return locked;
     }
 
     private String resolveContractCode(String requestedCode) {

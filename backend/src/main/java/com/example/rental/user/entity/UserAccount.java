@@ -105,6 +105,10 @@ public class UserAccount extends BaseEntity {
         return emailVerified;
     }
 
+    public void markEmailVerified() {
+        emailVerified = true;
+    }
+
     public OffsetDateTime getLastLoginAt() {
         return lastLoginAt;
     }

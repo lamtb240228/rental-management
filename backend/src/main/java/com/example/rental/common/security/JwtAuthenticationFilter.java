@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -39,17 +40,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String username = jwtService.extractUsername(token);
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 UserDetails details = userDetailsService.loadUserByUsername(username);
-                UserPrincipal principal = (UserPrincipal) details;
-                if (jwtService.isValid(token, principal)) {
+                if (details instanceof UserPrincipal principal
+                    && isAccountUsable(details)
+                    && jwtService.isValid(token, principal)) {
                     UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities());
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }
             }
-        } catch (JwtException | IllegalArgumentException exception) {
+        } catch (JwtException | AuthenticationException | IllegalArgumentException exception) {
             SecurityContextHolder.clearContext();
         }
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isAccountUsable(UserDetails details) {
+        return details.isEnabled()
+            && details.isAccountNonLocked()
+            && details.isAccountNonExpired()
+            && details.isCredentialsNonExpired();
     }
 }

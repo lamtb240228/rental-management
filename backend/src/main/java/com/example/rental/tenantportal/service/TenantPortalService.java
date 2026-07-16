@@ -2,6 +2,7 @@ package com.example.rental.tenantportal.service;
 
 import com.example.rental.billing.dto.InvoiceResponse;
 import com.example.rental.billing.dto.UtilityReadingResponse;
+import com.example.rental.billing.entity.UtilityReading;
 import com.example.rental.billing.repository.InvoiceRepository;
 import com.example.rental.billing.repository.UtilityReadingRepository;
 import com.example.rental.billing.service.InvoiceService;
@@ -9,6 +10,7 @@ import com.example.rental.billing.service.UtilityReadingService;
 import com.example.rental.common.exception.BadRequestException;
 import com.example.rental.common.security.CurrentUserService;
 import com.example.rental.contract.dto.ContractResponse;
+import com.example.rental.contract.entity.ContractTenant;
 import com.example.rental.contract.entity.ContractStatus;
 import com.example.rental.contract.entity.RentalContract;
 import com.example.rental.contract.repository.RentalContractRepository;
@@ -29,6 +31,8 @@ import com.example.rental.tenantportal.dto.TenantMaintenanceCreateRequest;
 import com.example.rental.tenantportal.dto.TenantPortalSummaryResponse;
 import java.util.List;
 import java.util.Objects;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -107,6 +111,7 @@ public class TenantPortalService {
             ? List.of()
             : utilityReadingRepository.findByRoomIdInAndDeletedAtIsNullOrderByBillingYearDescBillingMonthDesc(roomIds)
                 .stream()
+                .filter(reading -> isVisibleToTenant(reading, contracts, tenant.getId()))
                 .map(utilityReadingService::toResponse)
                 .toList();
         List<MaintenanceRequestResponse> maintenanceRequests = maintenanceRepository
@@ -148,5 +153,41 @@ public class TenantPortalService {
             .filter(contract -> contract.getStatus() == ContractStatus.ACTIVE)
             .findFirst()
             .orElse(contracts.isEmpty() ? null : contracts.get(0));
+    }
+
+    private boolean isVisibleToTenant(
+        UtilityReading reading,
+        List<RentalContract> contracts,
+        Long tenantId
+    ) {
+        YearMonth billingPeriod = YearMonth.of(reading.getBillingYear(), reading.getBillingMonth());
+        return contracts.stream().anyMatch(contract -> {
+            if (!contract.getRoom().getId().equals(reading.getRoom().getId())) {
+                return false;
+            }
+            if (reading.getInvoice() != null) {
+                if (!reading.getInvoice().getContract().getId().equals(contract.getId())) {
+                    return false;
+                }
+            } else if (contract.getStatus() != ContractStatus.ACTIVE) {
+                return false;
+            }
+
+            ContractTenant membership = contract.getTenants().stream()
+                .filter(item -> item.getTenant().getId().equals(tenantId))
+                .findFirst()
+                .orElse(null);
+            if (membership == null) {
+                return false;
+            }
+            LocalDate moveIn = membership.getMoveInDate() == null
+                ? contract.getStartDate()
+                : membership.getMoveInDate();
+            LocalDate moveOut = membership.getMoveOutDate() == null
+                ? contract.getEndDate()
+                : membership.getMoveOutDate();
+            return !billingPeriod.isBefore(YearMonth.from(moveIn))
+                && (moveOut == null || !billingPeriod.isAfter(YearMonth.from(moveOut)));
+        });
     }
 }
