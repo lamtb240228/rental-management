@@ -1,4 +1,4 @@
-import { apiClient } from "../../lib/api/client";
+import { apiClient, authSessionClient } from "../../lib/api/client";
 import type { ApiResponse, AuthResponse, UserProfile } from "../../lib/api/types";
 
 export type LoginPayload = {
@@ -24,4 +24,12 @@ export async function register(payload: RegisterPayload) {
 export async function me() {
   const response = await apiClient.get<ApiResponse<UserProfile>>("/auth/me");
   return response.data.data;
+}
+
+export async function logout() {
+  await authSessionClient.post("/auth/logout");
+}
+
+export async function logoutAll() {
+  await authSessionClient.post("/auth/logout-all");
 }

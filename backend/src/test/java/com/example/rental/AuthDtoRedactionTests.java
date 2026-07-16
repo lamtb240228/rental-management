@@ -3,6 +3,7 @@ package com.example.rental;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.rental.auth.dto.AuthResponse;
+import com.example.rental.auth.dto.ChangePasswordRequest;
 import com.example.rental.auth.dto.LoginRequest;
 import com.example.rental.auth.dto.RegisterRequest;
 import com.example.rental.auth.dto.UserProfileResponse;
@@ -31,6 +32,10 @@ class AuthDtoRedactionTests {
         assertThat(new RegisterRequest("security@rental.local", password, "Security Test", null).toString())
             .doesNotContain(password)
             .contains("password=[REDACTED]");
+        assertThat(new ChangePasswordRequest(password, "AnotherNeverLoggedPassword!").toString())
+            .doesNotContain(password)
+            .doesNotContain("AnotherNeverLoggedPassword!")
+            .contains("currentPassword=[REDACTED]", "newPassword=[REDACTED]");
         assertThat(new AuthResponse(accessToken, "Bearer", profile).toString())
             .doesNotContain(accessToken)
             .contains("accessToken=[REDACTED]");

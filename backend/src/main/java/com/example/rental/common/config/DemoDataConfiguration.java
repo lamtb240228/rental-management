@@ -3,6 +3,7 @@ package com.example.rental.common.config;
 import com.example.rental.auth.entity.Role;
 import com.example.rental.auth.entity.RoleName;
 import com.example.rental.auth.repository.RoleRepository;
+import com.example.rental.auth.service.RefreshSessionService;
 import com.example.rental.user.entity.UserStatus;
 import com.example.rental.user.entity.UserAccount;
 import com.example.rental.user.repository.UserAccountRepository;
@@ -46,12 +47,14 @@ public class DemoDataConfiguration {
         UserAccountRepository repository,
         RoleRepository roleRepository,
         PasswordEncoder passwordEncoder,
-        BootstrapAdminProperties bootstrapAdmin
+        BootstrapAdminProperties bootstrapAdmin,
+        RefreshSessionService refreshSessionService
     ) {
         return arguments -> {
             List<UserAccount> demoAccounts = new ArrayList<>();
             for (String email : DemoDataProperties.ACCOUNT_EMAILS) {
                 repository.findByEmailIgnoreCaseAndDeletedAtIsNull(email).ifPresent(account -> {
+                    refreshSessionService.revokeAllForUser(account.getId());
                     if (account.getStatus() != UserStatus.LOCKED) {
                         account.setStatus(UserStatus.LOCKED);
                         demoAccounts.add(account);

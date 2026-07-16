@@ -98,7 +98,8 @@ Bảng A–D dưới đây là phân loại tại thời điểm audit ban đầ
 
 - **P0-01:** đã tách namespace Docker/database, backup/restore dữ liệu đúng, giữ nguyên volume cũ và xác nhận Flyway V1–V6.
 - **P0-02:** đã có env fail-closed, bootstrap ADMIN một lần, runtime từ chối DB role đặc quyền, role PostgreSQL non-superuser, xoay credential admin/app cục bộ tách biệt, healthcheck buộc password authentication, khóa bất biến tài khoản demo khi demo bị tắt, cấu hình production, CORS allowlist, log redaction và image Docker; secret manager/CI secret scan vẫn còn.
-- **P0-03/P0-04/P0-05:** đã vô hiệu token của account bị khóa/xóa, chuẩn hóa 401/403, cô lập cache frontend, throttle login/register tại Nginx production, lọc utility portal theo thời gian cư trú, bổ sung role/ownership test và nhiều invariant; refresh/revoke, distributed rate limit và ma trận IDOR đầy đủ vẫn còn.
+- **P0-03:** đã hoàn thành mô hình access JWT 15 phút chỉ giữ trong memory và opaque refresh session 7 ngày; migration V7 chỉ lưu token hash, rotation dùng row lock, reuse/concurrent loser revoke toàn family, logout/logout-all/change-password/account lock có revocation, cookie HttpOnly `SameSite=Strict` và `Secure` trong production. Frontend khôi phục phiên sau reload, single-flight refresh/retry một lần, đồng bộ login/logout không truyền token giữa các tab. Xem [tài liệu bảo mật xác thực](authentication-security.md).
+- **P0-04/P0-05:** đã vô hiệu access token của account bị khóa/xóa, chuẩn hóa 401/403, cô lập cache frontend, throttle login/register tại Nginx production, lọc utility portal theo thời gian cư trú, bổ sung role/ownership test và nhiều invariant; distributed rate limit và ma trận IDOR đầy đủ vẫn còn.
 - **P0-06:** đã diễn tập dump/restore, có health check và log rotation; backup scheduler, off-site retention, alerting và PITR vẫn còn.
 - **P0-07:** backend clean test, frontend lint/typecheck/unit/build và E2E đa trình duyệt đã chạy; pipeline CI chưa được tạo.
 - **P1-02/P1-04/P1-07/P1-09/P1-10/P1-12:** đã siết lifecycle, thống nhất room/contract/invoice/utility row-lock, continuity điện nước, invoice period/linkage/cancel-reissue, payment concurrency và tenant-room maintenance; các workflow cọc, bàn giao/trả phòng, gia hạn, recurring invoice và receipt vẫn chưa hoàn tất.
@@ -141,7 +142,7 @@ Các dòng **Trạng thái** trong từng item bên dưới mô tả snapshot au
   - Frontend xác định rõ envDir hoặc có frontend/.env.example; VITE_API_BASE_URL được kiểm chứng khi build.
   - Có profile production với CORS allowlist, log level, datasource pool và actuator exposure tối thiểu.
   - Có kiểm tra secret scanning trong CI.
-- **Bảng database:** Không có; có thể thêm user_sessions ở P0-03 nếu chọn refresh token server-side.
+- **Bảng database:** P0-02 không tự thêm bảng; P0-03 hiện đã bổ sung `refresh_sessions` bằng migration V7 để quản lý refresh token server-side.
 - **API:** Không thêm API; cấu hình CORS và base URL cho toàn bộ API.
 - **UI:** Có trang lỗi cấu hình/build-time rõ ràng thay vì gọi nhầm localhost trong production.
 - **Validation và lỗi:** Startup fail nếu secret ngắn, URL sai hoặc biến bắt buộc thiếu; không log giá trị secret.
@@ -151,23 +152,29 @@ Các dòng **Trạng thái** trong từng item bên dưới mô tả snapshot au
 
 ### P0-03 — Xác thực và quản lý phiên an toàn
 
-- **Trạng thái:** B — login, register, logout client và /auth/me đã có; thiếu xử lý token hết hạn, cache chéo tài khoản, refresh/revoke và UX lỗi chuẩn.
+- **Trạng thái:** A trong phạm vi P0-03 — mô hình refresh session, backend revocation/rotation, frontend memory-only/session recovery và regression tests đã được triển khai; brute-force protection phân tán vẫn thuộc hardening vận hành riêng, không mở lại vòng đời phiên này.
 - **Dấu vết origin/example:** EXAMPLE-MỘT PHẦN — giữ auth hiện có và bổ sung role route, chưa giải quyết đầy đủ vòng đời phiên.
 - **Mục đích:** Cung cấp phiên đăng nhập ổn định, không để token hết hạn hoặc đổi tài khoản làm lộ cache dữ liệu.
 - **Vai trò:** Admin, landlord, tenant, staff, technician.
 - **User story:** Là người dùng, tôi muốn đăng nhập/đăng xuất an toàn và được chuyển về màn hình phù hợp khi phiên hết hạn.
 - **Acceptance criteria:**
-  - Login/register không trả password hash hoặc dữ liệu nhạy cảm.
-  - 401 xóa phiên và cache theo user; 403 chuyển đến trang Forbidden nhưng không xóa nhầm phiên.
-  - Đăng nhập tài khoản khác phải xóa cache dữ liệu của tài khoản trước.
-  - Có quyết định được tài liệu hóa giữa access-token ngắn hạn + refresh token hoặc access-token-only; nếu có refresh thì hỗ trợ rotate/revoke.
-  - Logout hoạt động trên mọi tab hoặc có cơ chế đồng bộ storage/session.
-  - Form có lỗi theo field, trạng thái pending và thông báo đăng nhập thất bại dễ hiểu.
-- **Bảng database:** user_accounts, roles, user_roles; đề xuất user_sessions hoặc refresh_tokens nếu dùng refresh/revocation.
-- **API:** POST /api/auth/login, POST /api/auth/register, GET /api/auth/me; đề xuất POST /api/auth/refresh và POST /api/auth/logout nếu chọn refresh token.
-- **UI:** Login, register, expired-session message, Forbidden page, account/session menu.
-- **Validation và lỗi:** Chuẩn hóa email; password policy; rate limit/brute-force protection; 401 cho credential sai nhưng không tiết lộ email có tồn tại; account LOCKED/INACTIVE có thông báo phù hợp.
-- **Test:** unit auth service/JWT; integration login/me/expired/locked; frontend interceptor/cache isolation; E2E login/logout và đổi tài khoản.
+  - Login/register/refresh chỉ trả access token và profile cần thiết; không trả password hash hoặc raw refresh token, và response không được cache.
+  - Access JWT mặc định sống 15 phút, chỉ giữ trong memory; frontend không lưu access/refresh credential trong `localStorage` hoặc `sessionStorage`.
+  - Opaque refresh token 256 bit chỉ truyền qua cookie HttpOnly; database chỉ lưu SHA-256 hash và absolute expiry mặc định 7 ngày.
+  - Mỗi refresh rotate token trong một transaction có row lock. Token cũ không dùng lại được; reuse hoặc concurrent loser revoke toàn bộ family và trả JSON 401 chung.
+  - Account `LOCKED`, `INACTIVE` hoặc soft-deleted không refresh được. Đổi mật khẩu hoặc khóa account revoke toàn bộ refresh session.
+  - Logout revoke family hiện tại; logout-all revoke mọi family của account; cả hai xóa cookie và không làm lộ trạng thái account/token.
+  - Cookie luôn `HttpOnly`, host-only, `Path=/api/auth`, mặc định `SameSite=Strict`, có `Secure` bắt buộc trong production; credentialed CORS từ chối wildcard origin.
+  - Reload trang khôi phục phiên qua refresh endpoint. Các 401 đồng thời dùng chung refresh promise, mỗi request retry tối đa một lần và refresh failure kết thúc phiên, không tạo loop.
+  - Cross-tab chỉ truyền tín hiệu login/logout không chứa token; logout và session epoch ngăn late response khôi phục phiên đã kết thúc.
+  - 401 xóa phiên/cache theo user; 403 không xóa nhầm phiên; login failure không tiết lộ email/account có tồn tại.
+  - Form login/register giữ validation theo field, trạng thái pending và thông báo thất bại dễ hiểu.
+- **Bảng database:** `user_accounts`, `roles`, `user_roles`, `refresh_sessions` (V7); xem [physical schema](database-schema.md#24-refresh_sessions).
+- **API:** `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/refresh`, `POST /api/auth/logout`, `POST /api/auth/logout-all`, `POST /api/auth/change-password`, `GET /api/auth/me`.
+- **UI:** Login/register và route guard hiện có; bootstrap loading khi khôi phục phiên, expired-session/logout state và đồng bộ logout giữa các tab.
+- **Validation và lỗi:** Chuẩn hóa email và password policy; generic JSON 401 cho credential/refresh không hợp lệ; validate TTL, token size, cookie name/path/SameSite; không ghi token vào URL, log, exception hoặc `toString()`.
+- **Test:** Backend kiểm tra cookie/hash-at-rest, rotation/reuse/revocation, expiry/forgery, logout/logout-all, password/account revocation, production cookie và concurrent refresh trên PostgreSQL Testcontainers/Flyway V1–V7. Frontend kiểm tra memory-only/legacy cleanup, reload recovery, single-flight 401, retry guard, refresh failure, Web Locks, cross-tab signal và late-response race. Cổng đóng item gồm backend clean test; frontend lint/typecheck/unit/build; E2E auth phù hợp; `npm audit`; Compose config; diff/secret scan.
+- **Tài liệu và nguồn:** [Authentication and session security](authentication-security.md), [Spring Security session management](https://docs.spring.io/spring-security/reference/6.5/servlet/authentication/session-management.html), [OWASP Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html), [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html).
 - **Priority:** P0.
 - **Complexity:** L.
 
@@ -712,7 +719,7 @@ Các dòng **Trạng thái** trong từng item bên dưới mô tả snapshot au
 
 ## 10. Quyết định kiến trúc cần chốt theo từng giai đoạn
 
-- Cơ chế access token/refresh token và nơi lưu token.
+- **Đã chốt ở P0-03:** access JWT 15 phút chỉ giữ trong memory; opaque refresh token 7 ngày chỉ ở cookie HttpOnly và lưu hash trong database; rotation/reuse/revocation theo [tài liệu bảo mật xác thực](authentication-security.md).
 - RESERVED là trạng thái vật lý của room hay trạng thái dẫn xuất từ room_reservations.
 - Gia hạn hợp đồng tạo contract mới, amendment hay version.
 - Payment/deposit/refund dùng các ledger tách biệt hay mô hình transaction chung.

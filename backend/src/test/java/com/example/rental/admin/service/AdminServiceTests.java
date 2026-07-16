@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import com.example.rental.admin.dto.AdminUserStatusUpdateRequest;
+import com.example.rental.auth.service.RefreshSessionService;
 import com.example.rental.billing.repository.InvoiceRepository;
 import com.example.rental.common.config.DemoDataProperties;
 import com.example.rental.common.exception.BadRequestException;
@@ -34,13 +35,15 @@ class AdminServiceTests {
     private MaintenanceRequestRepository maintenanceRepository;
     @Mock
     private CurrentUserService currentUserService;
+    @Mock
+    private RefreshSessionService refreshSessionService;
 
     @Test
     void demoAccountStatusCannotBeChangedWhenDemoDataIsDisabled() {
         UserAccount demoAccount = new UserAccount();
         demoAccount.setEmail("ADMIN@RENTAL.LOCAL");
         demoAccount.setStatus(UserStatus.LOCKED);
-        when(userAccountRepository.findById(100L)).thenReturn(Optional.of(demoAccount));
+        when(userAccountRepository.findByIdAndDeletedAtIsNullForUpdate(100L)).thenReturn(Optional.of(demoAccount));
 
         AdminService service = new AdminService(
             userAccountRepository,
@@ -49,7 +52,8 @@ class AdminServiceTests {
             invoiceRepository,
             maintenanceRepository,
             currentUserService,
-            new DemoDataProperties(false)
+            new DemoDataProperties(false),
+            refreshSessionService
         );
 
         assertThatThrownBy(() -> service.updateUserStatus(

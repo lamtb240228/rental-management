@@ -436,11 +436,18 @@ Dùng để lưu thông báo trong hệ thống, ví dụ:
 - Thông báo yêu cầu sửa chữa đã được cập nhật
 - Thông báo thanh toán thành công
 
-### 8.2. refresh_tokens
+### 8.2. refresh_sessions — đã triển khai bằng V7
 
-Dùng để quản lý refresh token khi hệ thống triển khai cơ chế JWT nâng cao.
+P0 Authentication Session Hardening đã hiện thực hóa nhu cầu này dưới tên
+`refresh_sessions`, thay vì bảng `refresh_tokens` dự kiến ban đầu. Migration
+`V7__create_refresh_sessions.sql` lưu duy nhất SHA-256 hash của opaque refresh
+token, session family, absolute expiry, thời điểm sử dụng/thu hồi và liên kết
+đến token kế nhiệm; raw token chỉ tồn tại trong cookie HttpOnly.
 
-Trong phiên bản đăng nhập đầu tiên, bảng này chưa được ưu tiên.
+Schema vật lý và chính sách rotation/reuse là nguồn sự thật tại
+[database-schema.md](database-schema.md#24-refresh_sessions) và
+[authentication-security.md](authentication-security.md). Không tạo thêm bảng
+`refresh_tokens` trùng chức năng.
 
 ### 8.3. audit_logs
 

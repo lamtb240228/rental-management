@@ -252,3 +252,32 @@ Một production stack cô lập đã được dựng bằng project `rental-man
 - Backend production khởi động hoàn tất, có profile `prod`, không có dòng DEBUG hoặc plaintext password kiểm thử trong log.
 
 Sau khi kiểm tra, đúng ba container, một network và một volume thuộc namespace `prodcheck` đã được tháo. Stack development, database mới đã restore và toàn bộ volume legacy không bị xóa.
+
+## 12. Checkpoint P0 Authentication Session Hardening
+
+Phần 10–11 ở trên là bằng chứng lịch sử của checkpoint `7b75e45`; các nhận định
+“refresh/revoke chưa hoàn tất” và số liệu V1–V6 không còn mô tả branch feature
+hiện tại. P0-03 tiếp tục trên `feature/p0-auth-session-hardening` mà không sửa
+V1–V6 và không triển khai chức năng P1:
+
+- JWT access token mặc định giảm còn 15 phút và chỉ được giữ trong memory của frontend.
+- V7 bổ sung `refresh_sessions`; opaque refresh token 256 bit chỉ đi qua cookie HttpOnly, database chỉ lưu SHA-256 hash.
+- Refresh rotation dùng transaction và pessimistic row lock; predecessor reuse revoke toàn bộ family.
+- Có API refresh, logout, logout-all và change-password; account bị khóa/vô hiệu/xóa mềm hoặc đổi mật khẩu không thể tiếp tục refresh.
+- Frontend bootstrap phiên sau reload, single-flight các 401, retry tối đa một lần và đồng bộ login/logout giữa tab mà không truyền credential.
+
+Vòng xác minh mới ngày 16/07/2026 đã chạy thực tế:
+
+| Kiểm tra | Kết quả |
+| --- | --- |
+| `.\\mvnw.cmd clean test` | Pass 43/43; PostgreSQL Testcontainers 16.14; Flyway validate/migrate V1–V7 |
+| `npm ci`, `npm run lint`, `npm run typecheck` | Pass |
+| `npm run test:run` | Pass 7 file/24 test |
+| `npm run build` | Pass; còn cảnh báo bundle chính khoảng 547 KB thuộc tối ưu P2 |
+| `npm audit` | Pass; 0 vulnerability tại thời điểm kiểm tra |
+| `npm run test:e2e -- tests/e2e/auth-session.spec.ts` | Pass 16/16 trên Chromium, Firefox, WebKit và mobile Chrome |
+| `docker compose config --quiet` và profile `app` | Pass |
+| Database development | PostgreSQL healthy; Flyway history V1–V7 đều `success=true`; 14 bảng ứng dụng cùng `flyway_schema_history` |
+
+Chi tiết thiết kế, cookie, endpoint và nguồn chính thức nằm tại
+[authentication-security.md](authentication-security.md).

@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.example.rental.auth.entity.Role;
 import com.example.rental.auth.entity.RoleName;
 import com.example.rental.auth.repository.RoleRepository;
+import com.example.rental.auth.service.RefreshSessionService;
 import com.example.rental.user.entity.UserAccount;
 import com.example.rental.user.entity.UserStatus;
 import com.example.rental.user.repository.UserAccountRepository;
@@ -33,6 +34,9 @@ class DemoDataConfigurationTests {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    @Mock
+    private RefreshSessionService refreshSessionService;
+
     private final DemoDataConfiguration configuration = new DemoDataConfiguration();
 
     @Test
@@ -48,7 +52,8 @@ class DemoDataConfigurationTests {
             repository,
             roleRepository,
             passwordEncoder,
-            new BootstrapAdminProperties(null, null, null)
+            new BootstrapAdminProperties(null, null, null),
+            refreshSessionService
         ).run(null);
 
         assertEquals(UserStatus.LOCKED, account.getStatus());
@@ -68,7 +73,8 @@ class DemoDataConfigurationTests {
                 repository,
                 roleRepository,
                 passwordEncoder,
-                new BootstrapAdminProperties(null, null, null)
+                new BootstrapAdminProperties(null, null, null),
+                refreshSessionService
             ).run(null)
         );
     }
@@ -81,7 +87,8 @@ class DemoDataConfigurationTests {
                 repository,
                 roleRepository,
                 passwordEncoder,
-                new BootstrapAdminProperties(null, null, null)
+                new BootstrapAdminProperties(null, null, null),
+                refreshSessionService
             ).run(null)
         );
     }
@@ -100,7 +107,8 @@ class DemoDataConfigurationTests {
                 "  First.Admin@Example.Invalid  ",
                 "StrongBootstrap123!",
                 "First Administrator"
-            )
+            ),
+            refreshSessionService
         ).run(null);
 
         ArgumentCaptor<UserAccount> accountCaptor = ArgumentCaptor.forClass(UserAccount.class);

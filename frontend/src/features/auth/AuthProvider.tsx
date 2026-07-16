@@ -1,76 +1,161 @@
-import { useQuery } from "@tanstack/react-query";
 import { createContext, type PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { clearToken, getToken, setToken, subscribeToUnauthorized, TOKEN_KEY } from "../../lib/api/client";
+import {
+  establishAccessSession,
+  getSessionEpoch,
+  invalidateAccessSession,
+  refreshAccessToken,
+  subscribeToUnauthorized,
+} from "../../lib/api/client";
 import type { AuthResponse, UserProfile } from "../../lib/api/types";
 import { queryClient } from "../../lib/query-client/queryClient";
-import { me } from "./authApi";
+import { logout } from "./authApi";
+import { createSessionChannel, type SessionChannel } from "./sessionChannel";
 
 type AuthContextValue = {
   user: UserProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   signIn: (response: AuthResponse) => void;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [hasToken, setHasToken] = useState(Boolean(getToken()));
-  const sessionRevisionRef = useRef(0);
-  const [sessionRevision, setSessionRevision] = useState(0);
-  const profileQuery = useQuery({
-    queryKey: ["auth", "me", sessionRevision],
-    queryFn: me,
-    enabled: hasToken,
-  });
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const channelRef = useRef<SessionChannel | null>(null);
+  const uiRevisionRef = useRef(0);
+  const mountedRef = useRef(false);
 
-  const advanceSession = useCallback(() => {
-    sessionRevisionRef.current += 1;
-    setSessionRevision(sessionRevisionRef.current);
-    return sessionRevisionRef.current;
+  const clearSessionUi = useCallback(() => {
+    uiRevisionRef.current += 1;
+    queryClient.clear();
+    if (mountedRef.current) {
+      setUser(null);
+      setIsLoading(false);
+    }
   }, []);
 
-  const clearSession = useCallback(() => {
-    clearToken();
-    queryClient.clear();
-    advanceSession();
-    setHasToken(false);
-  }, [advanceSession]);
+  const restoreSession = useCallback(async () => {
+    const expectedEpoch = getSessionEpoch();
+    const uiRevision = uiRevisionRef.current + 1;
+    uiRevisionRef.current = uiRevision;
 
-  useEffect(() => subscribeToUnauthorized(clearSession), [clearSession]);
-
-  useEffect(() => {
-    function handleStorage(event: StorageEvent) {
-      if (event.key !== TOKEN_KEY) return;
-
-      queryClient.clear();
-      advanceSession();
-      setHasToken(Boolean(event.newValue));
+    // Defer React state changes out of the mounting effect body. This also
+    // gives a synchronous login/logout transition priority over bootstrap.
+    await Promise.resolve();
+    if (
+      !mountedRef.current ||
+      uiRevisionRef.current !== uiRevision ||
+      getSessionEpoch() !== expectedEpoch
+    ) {
+      return;
     }
 
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, [advanceSession]);
+    queryClient.clear();
+    setUser(null);
+    setIsLoading(true);
+
+    try {
+      const response = await refreshAccessToken(expectedEpoch);
+      if (
+        mountedRef.current &&
+        uiRevisionRef.current === uiRevision &&
+        getSessionEpoch() === expectedEpoch
+      ) {
+        setUser(response.user);
+      }
+    } catch {
+      if (
+        mountedRef.current &&
+        uiRevisionRef.current === uiRevision &&
+        getSessionEpoch() === expectedEpoch
+      ) {
+        setUser(null);
+      }
+    } finally {
+      if (
+        mountedRef.current &&
+        uiRevisionRef.current === uiRevision &&
+        getSessionEpoch() === expectedEpoch
+      ) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
 
   const signIn = useCallback((response: AuthResponse) => {
-    // Clear every account-scoped query before accepting another identity.
+    uiRevisionRef.current += 1;
     queryClient.clear();
-    setToken(response.accessToken);
-    const nextRevision = advanceSession();
-    queryClient.setQueryData(["auth", "me", nextRevision], response.user);
-    setHasToken(true);
-  }, [advanceSession]);
+    establishAccessSession(response.accessToken);
+    setUser(response.user);
+    setIsLoading(false);
+    channelRef.current?.publish("login");
+  }, []);
+
+  const signOut = useCallback(async () => {
+    // Invalidate memory and the transport epoch before any network wait. A
+    // refresh response that arrives later can no longer restore this session.
+    invalidateAccessSession();
+    clearSessionUi();
+    channelRef.current?.publish("logout");
+
+    try {
+      await logout();
+    } catch {
+      // Local logout is intentionally final even if the network is offline.
+      // The short access-token lifetime limits the abandoned server session.
+    }
+  }, [clearSessionUi]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => subscribeToUnauthorized(clearSessionUi), [clearSessionUi]);
+
+  useEffect(() => {
+    const channel = createSessionChannel((signal) => {
+      if (signal.kind === "logout") {
+        invalidateAccessSession();
+        clearSessionUi();
+        return;
+      }
+
+      // A login signal carries no credential. The receiving tab invalidates
+      // its old identity, then obtains its own access token from the shared
+      // HttpOnly refresh cookie. It does not rebroadcast the received event.
+      invalidateAccessSession();
+      void restoreSession();
+    });
+
+    channelRef.current = channel;
+    return () => {
+      channelRef.current = null;
+      channel.close();
+    };
+  }, [clearSessionUi, restoreSession]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void restoreSession();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [restoreSession]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      user: profileQuery.data ?? null,
-      isAuthenticated: Boolean(profileQuery.data),
-      isLoading: hasToken && profileQuery.isLoading,
+      user,
+      isAuthenticated: Boolean(user),
+      isLoading,
       signIn,
-      signOut: clearSession,
+      signOut,
     }),
-    [clearSession, hasToken, profileQuery.data, profileQuery.isLoading, signIn],
+    [isLoading, signIn, signOut, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

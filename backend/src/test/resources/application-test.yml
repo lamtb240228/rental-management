@@ -10,6 +10,13 @@ app:
     enabled: true
   jwt:
     secret: test-secret-change-this-value-to-at-least-32-characters
-    expiration-minutes: 60
+    expiration-minutes: 15
+  refresh-token:
+    expiration-days: 7
+    token-bytes: 32
+    cookie-name: rental_refresh
+    cookie-path: /api/auth
+    cookie-secure: false
+    cookie-same-site: Strict
   cors:
     allowed-origins: http://localhost:5173

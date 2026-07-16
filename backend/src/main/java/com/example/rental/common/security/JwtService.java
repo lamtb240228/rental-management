@@ -6,6 +6,7 @@ import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +25,7 @@ public class JwtService {
         Instant expiresAt = now.plusSeconds(properties.expirationMinutes() * 60);
         return Jwts.builder()
             .subject(principal.getUsername())
+            .id(UUID.randomUUID().toString())
             .claim("userId", principal.getId())
             .claim("roles", principal.getAuthorities().stream().map(Object::toString).toList())
             .issuedAt(Date.from(now))

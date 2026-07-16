@@ -13,7 +13,7 @@
 
 | Nhóm | Chủ trọ | Người thuê | Quản trị hệ thống |
 | --- | --- | --- | --- |
-| Xác thực | Đăng ký, đăng nhập, đăng xuất, hồ sơ | Đăng nhập, đăng xuất, hồ sơ | Đăng nhập, đăng xuất, hồ sơ |
+| Xác thực | Đăng ký, đăng nhập, khôi phục phiên, đăng xuất, đổi mật khẩu, hồ sơ | Đăng nhập, khôi phục phiên, đăng xuất, đổi mật khẩu, hồ sơ | Đăng nhập, khôi phục phiên, đăng xuất, đổi mật khẩu, hồ sơ |
 | Khu trọ/phòng | Tạo, xem, sửa, ngừng hoạt động | Xem phòng đang thuê | Số liệu tổng quan |
 | Người thuê | Tạo, xem, sửa, lịch sử thuê | Xem hồ sơ của mình | Danh sách tài khoản |
 | Hợp đồng | Tạo, xem, chấm dứt | Xem hợp đồng của mình | Số liệu tổng quan |
@@ -31,6 +31,31 @@ Backend kiểm tra vai trò và quyền sở hữu dữ liệu; frontend có rou
 - [Backlog P0–P3](docs/product-backlog.md)
 - [Thiết kế database](docs/database-design.md)
 - [Database schema](docs/database-schema.md)
+- [Bảo mật xác thực và phiên đăng nhập](docs/authentication-security.md)
+
+## Phiên đăng nhập an toàn
+
+P0-03 sử dụng access token ngắn hạn kết hợp refresh session có thể thu hồi:
+
+- JWT access token mặc định sống 15 phút, chỉ được giữ trong memory của frontend và gửi bằng `Authorization: Bearer ...`; frontend chủ động xóa khóa token legacy khỏi `localStorage` và `sessionStorage`.
+- Refresh token là opaque value 256 bit sinh bằng `SecureRandom`. Raw token chỉ đi qua cookie HttpOnly; PostgreSQL chỉ lưu SHA-256 hash trong bảng `refresh_sessions` do migration V7 tạo.
+- Refresh session có thời hạn tuyệt đối mặc định 7 ngày. Mỗi lần refresh rotate token trong transaction và giữ cùng family; reuse token cũ revoke toàn bộ family để không tạo hai successor hợp lệ.
+- Cookie `rental_refresh` có `HttpOnly`, `SameSite=Strict`, host-only và `Path=/api/auth`; profile production bắt buộc thêm `Secure`. Auth response dùng `Cache-Control: no-store`.
+- Frontend khôi phục phiên qua cookie sau khi reload, gộp các 401 đồng thời vào một refresh promise, chỉ retry mỗi request một lần và chỉ phát tín hiệu login/logout không chứa credential giữa các tab.
+
+Các endpoint của vòng đời phiên:
+
+| Method | Endpoint | Hành vi |
+| --- | --- | --- |
+| `POST` | `/api/auth/login` | Trả access token và tạo refresh cookie/session mới |
+| `POST` | `/api/auth/register` | Giữ hành vi tự đăng nhập, tạo refresh cookie/session mới |
+| `POST` | `/api/auth/refresh` | Kiểm tra cookie, rotate refresh token và trả access token mới |
+| `POST` | `/api/auth/logout` | Revoke family hiện tại và xóa cookie |
+| `POST` | `/api/auth/logout-all` | Revoke mọi refresh session của account và xóa cookie |
+| `POST` | `/api/auth/change-password` | Đổi mật khẩu, revoke mọi refresh session và xóa cookie |
+| `GET` | `/api/auth/me` | Trả profile theo access token hiện tại |
+
+Chi tiết schema, concurrency, cookie policy và failure behavior nằm trong [tài liệu bảo mật xác thực](docs/authentication-security.md). Thiết kế tham chiếu [Spring Security stateless session management](https://docs.spring.io/spring-security/reference/6.5/servlet/authentication/session-management.html), [OWASP Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) và [RFC 9700 về refresh-token rotation/replay](https://www.rfc-editor.org/rfc/rfc9700.html).
 
 ## Cấu hình môi trường
 
@@ -48,6 +73,12 @@ Trước khi chạy, bắt buộc thay:
 - `DB_APP_PASSWORD`: mật khẩu riêng của role ứng dụng không có quyền superuser.
 - `JWT_SECRET`: chuỗi ngẫu nhiên tối thiểu 32 ký tự.
 - Khi production chưa có ADMIN thật: `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` (12–72 ký tự, có hoa/thường/số/ký hiệu) và `BOOTSTRAP_ADMIN_FULL_NAME`. Sau lần khởi động tạo ADMIN thành công, xóa ba biến bootstrap khỏi environment rồi recreate riêng backend.
+
+Các mặc định session có thể được override qua environment:
+
+- `JWT_EXPIRATION_MINUTES`: thời hạn access token, mặc định `15`.
+- `REFRESH_TOKEN_EXPIRATION_DAYS`: thời hạn tuyệt đối của refresh session, mặc định `7`.
+- `REFRESH_COOKIE_SAME_SITE`: chỉ nhận `Strict` hoặc `Lax`, mặc định `Strict`; không nới chính sách cookie nếu chưa đánh giá lại CSRF và topology triển khai.
 
 Không commit `.env`. Database/JWT và bootstrap ADMIN lần đầu fail-closed nếu thiếu hoặc sai cấu hình. Các origin localhost trong file mẫu chỉ dành cho local và bắt buộc phải thay bằng domain thật khi triển khai.
 Các biến hệ điều hành chung `DEBUG`/`TRACE` bị bỏ qua để tránh log request ngoài ý muốn; chỉ dùng `RENTAL_DEBUG`/`RENTAL_TRACE` khi chẩn đoán local. Profile production luôn cưỡng chế tắt hai chế độ này.
@@ -147,6 +178,7 @@ Trước khi triển khai Internet:
 - đặt `CORS_ALLOWED_ORIGINS` đúng domain;
 - đặt `CONTAINER_CORS_ALLOWED_ORIGINS` bằng public origin của frontend container;
 - đặt TLS tại reverse proxy/load balancer biên;
+- giữ profile `prod` để cookie refresh luôn có `Secure`; credentialed CORS chỉ dùng origin được cấu hình rõ ràng, không dùng wildcard;
 - nếu Nginx nằm sau load balancer, chỉ cấu hình `real_ip_header`/`set_real_ip_from` cho CIDR của proxy tin cậy; cấu hình mặc định chủ động bỏ forwarded IP do client gửi;
 - dùng secret riêng cho từng môi trường và giới hạn quyền truy cập file env;
 - thực hiện backup/restore drill;
@@ -187,6 +219,8 @@ Pop-Location
 ```
 
 Playwright có project Chromium, Firefox, WebKit và Pixel 7. Không coi E2E thành công nếu browser binary chưa được cài.
+
+Cổng kiểm tra P0-03 phải bao phủ migration V1–V7 trên PostgreSQL Testcontainers; login/cookie/hash-at-rest; refresh rotation, expiry, forgery, reuse và concurrent refresh; logout/logout-all/change-password/account lock; frontend memory-only storage, bootstrap refresh, single-flight 401, retry tối đa một lần, cross-tab logout và late-response race. Chỉ đóng checkpoint khi backend clean test, frontend lint/typecheck/unit/build, E2E authentication phù hợp, `npm audit`, Docker Compose config, `git diff --check` và secret scan đều đạt.
 
 ## Quy tắc migration và dữ liệu
 

@@ -31,6 +31,8 @@ app:
     full-name: ${BOOTSTRAP_ADMIN_FULL_NAME:}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  refresh-token:
+    cookie-secure: true
 
 springdoc:
   api-docs:

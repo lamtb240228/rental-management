@@ -31,7 +31,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AccountStatusException.class)
     ResponseEntity<ErrorResponse> handleAccountStatus(AccountStatusException exception, HttpServletRequest request) {
-        return build(HttpStatus.UNAUTHORIZED, "Account is inactive or locked", request, null);
+        return build(HttpStatus.UNAUTHORIZED, "Email or password is incorrect", request, null);
     }
 
     @ExceptionHandler(AccessDeniedException.class)

@@ -1,6 +1,7 @@
 package com.example.rental.auth.service;
 
 import com.example.rental.auth.dto.AuthResponse;
+import com.example.rental.auth.dto.ChangePasswordRequest;
 import com.example.rental.auth.dto.LoginRequest;
 import com.example.rental.auth.dto.RegisterRequest;
 import com.example.rental.auth.dto.UserProfileResponse;
@@ -9,7 +10,9 @@ import com.example.rental.auth.entity.RoleName;
 import com.example.rental.auth.repository.RoleRepository;
 import com.example.rental.common.exception.ConflictException;
 import com.example.rental.common.exception.ForbiddenException;
+import com.example.rental.common.exception.BadRequestException;
 import com.example.rental.common.exception.NotFoundException;
+import com.example.rental.common.exception.UnauthorizedException;
 import com.example.rental.common.security.CurrentUserService;
 import com.example.rental.common.security.JwtService;
 import com.example.rental.common.security.UserPrincipal;
@@ -34,6 +37,7 @@ public class AuthService {
     private final UserAccountRepository userAccountRepository;
     private final RoleRepository roleRepository;
     private final CurrentUserService currentUserService;
+    private final RefreshSessionService refreshSessionService;
 
     public AuthService(
         AuthenticationManager authenticationManager,
@@ -41,7 +45,8 @@ public class AuthService {
         JwtService jwtService,
         UserAccountRepository userAccountRepository,
         RoleRepository roleRepository,
-        CurrentUserService currentUserService
+        CurrentUserService currentUserService,
+        RefreshSessionService refreshSessionService
     ) {
         this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
@@ -49,10 +54,11 @@ public class AuthService {
         this.userAccountRepository = userAccountRepository;
         this.roleRepository = roleRepository;
         this.currentUserService = currentUserService;
+        this.refreshSessionService = refreshSessionService;
     }
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public AuthenticatedSession register(RegisterRequest request, String currentRefreshToken) {
         String normalizedEmail = normalizeEmail(request.email());
         if (userAccountRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull(normalizedEmail)) {
             throw new ConflictException("Email is already registered");
@@ -73,20 +79,50 @@ public class AuthService {
             throw new ConflictException("Email is already registered");
         }
 
-        UserPrincipal principal = UserPrincipal.from(user);
-        return new AuthResponse(jwtService.generateToken(principal), "Bearer", toProfile(user));
+        revokeCurrentBrowserSession(currentRefreshToken);
+        return createAuthenticatedSession(user);
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
+    public AuthenticatedSession login(LoginRequest request, String currentRefreshToken) {
         Authentication authentication = authenticationManager.authenticate(
             new UsernamePasswordAuthenticationToken(normalizeEmail(request.email()), request.password())
         );
         UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
-        UserAccount user = userAccountRepository.findById(principal.getId())
-            .orElseThrow(() -> new ForbiddenException("Authenticated user no longer exists"));
+        UserAccount user = userAccountRepository.findByIdAndDeletedAtIsNullForUpdate(principal.getId())
+            .filter(UserAccount::isActive)
+            .orElseThrow(() -> new UnauthorizedException("Email or password is incorrect"));
         user.markLoggedIn();
-        return new AuthResponse(jwtService.generateToken(principal), "Bearer", toProfile(user));
+        revokeCurrentBrowserSession(currentRefreshToken);
+        return createAuthenticatedSession(user);
+    }
+
+    public AuthenticatedSession refresh(String rawRefreshToken) {
+        RefreshSessionGrant refreshSession = refreshSessionService.rotate(rawRefreshToken);
+        return createAuthenticatedSession(refreshSession.userAccount(), refreshSession);
+    }
+
+    public void logout(String rawRefreshToken) {
+        refreshSessionService.revokeFamilyForToken(rawRefreshToken);
+    }
+
+    public void logoutAll(String rawRefreshToken) {
+        refreshSessionService.revokeAllForToken(rawRefreshToken);
+    }
+
+    @Transactional
+    public void changePassword(ChangePasswordRequest request) {
+        UserAccount user = userAccountRepository.findByIdAndDeletedAtIsNullForUpdate(currentUserService.currentUserId())
+            .filter(UserAccount::isActive)
+            .orElseThrow(() -> new UnauthorizedException("Authentication is required"));
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new UnauthorizedException("Current password is incorrect");
+        }
+        if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
+            throw new BadRequestException("New password must be different from the current password");
+        }
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        refreshSessionService.revokeAllForUser(user.getId());
     }
 
     @Transactional(readOnly = true)
@@ -101,6 +137,22 @@ public class AuthService {
             .map(role -> role.getName().name())
             .collect(Collectors.toSet());
         return new UserProfileResponse(user.getId(), user.getEmail(), user.getFullName(), user.getPhone(), roles);
+    }
+
+    private AuthenticatedSession createAuthenticatedSession(UserAccount user) {
+        return createAuthenticatedSession(user, refreshSessionService.issue(user));
+    }
+
+    private AuthenticatedSession createAuthenticatedSession(UserAccount user, RefreshSessionGrant refreshSession) {
+        UserPrincipal principal = UserPrincipal.from(user);
+        AuthResponse response = new AuthResponse(jwtService.generateToken(principal), "Bearer", toProfile(user));
+        return new AuthenticatedSession(response, refreshSession);
+    }
+
+    private void revokeCurrentBrowserSession(String currentRefreshToken) {
+        if (currentRefreshToken != null && !currentRefreshToken.isBlank()) {
+            refreshSessionService.revokeFamilyForToken(currentRefreshToken);
+        }
     }
 
     private String normalizeEmail(String email) {

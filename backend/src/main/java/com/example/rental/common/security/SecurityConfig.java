@@ -27,7 +27,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, RefreshTokenProperties.class, CorsProperties.class})
 public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
@@ -46,7 +46,13 @@ public class SecurityConfig {
                 .accessDeniedHandler(restSecurityExceptionHandler)
             )
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
+                .requestMatchers(
+                    "/api/auth/login",
+                    "/api/auth/register",
+                    "/api/auth/refresh",
+                    "/api/auth/logout",
+                    "/api/auth/logout-all"
+                ).permitAll()
                 .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                 .requestMatchers("/actuator/metrics", "/actuator/metrics/**").hasRole("ADMIN")

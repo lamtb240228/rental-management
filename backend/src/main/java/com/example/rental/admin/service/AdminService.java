@@ -3,6 +3,7 @@ package com.example.rental.admin.service;
 import com.example.rental.admin.dto.AdminSummaryResponse;
 import com.example.rental.admin.dto.AdminUserResponse;
 import com.example.rental.admin.dto.AdminUserStatusUpdateRequest;
+import com.example.rental.auth.service.RefreshSessionService;
 import com.example.rental.auth.entity.RoleName;
 import com.example.rental.billing.repository.InvoiceRepository;
 import com.example.rental.common.config.DemoDataProperties;
@@ -14,6 +15,7 @@ import com.example.rental.common.exception.BadRequestException;
 import com.example.rental.common.exception.NotFoundException;
 import com.example.rental.common.security.CurrentUserService;
 import com.example.rental.user.entity.UserAccount;
+import com.example.rental.user.entity.UserStatus;
 import com.example.rental.user.repository.UserAccountRepository;
 import java.util.List;
 import java.util.Locale;
@@ -31,6 +33,7 @@ public class AdminService {
     private final MaintenanceRequestRepository maintenanceRepository;
     private final CurrentUserService currentUserService;
     private final DemoDataProperties demoDataProperties;
+    private final RefreshSessionService refreshSessionService;
 
     public AdminService(
         UserAccountRepository userAccountRepository,
@@ -39,7 +42,8 @@ public class AdminService {
         InvoiceRepository invoiceRepository,
         MaintenanceRequestRepository maintenanceRepository,
         CurrentUserService currentUserService,
-        DemoDataProperties demoDataProperties
+        DemoDataProperties demoDataProperties,
+        RefreshSessionService refreshSessionService
     ) {
         this.userAccountRepository = userAccountRepository;
         this.propertyRepository = propertyRepository;
@@ -48,6 +52,7 @@ public class AdminService {
         this.maintenanceRepository = maintenanceRepository;
         this.currentUserService = currentUserService;
         this.demoDataProperties = demoDataProperties;
+        this.refreshSessionService = refreshSessionService;
     }
 
     @Transactional(readOnly = true)
@@ -93,8 +98,7 @@ public class AdminService {
 
     @Transactional
     public AdminUserResponse updateUserStatus(Long id, AdminUserStatusUpdateRequest request) {
-        UserAccount user = userAccountRepository.findById(id)
-            .filter(account -> account.getDeletedAt() == null)
+        UserAccount user = userAccountRepository.findByIdAndDeletedAtIsNullForUpdate(id)
             .orElseThrow(() -> new NotFoundException("User account not found"));
         if (!demoDataProperties.enabled()
             && DemoDataProperties.ACCOUNT_EMAILS.contains(user.getEmail().toLowerCase(Locale.ROOT))) {
@@ -104,6 +108,9 @@ public class AdminService {
             throw new BadRequestException("You cannot change your own account status");
         }
         user.setStatus(request.status());
+        if (request.status() != UserStatus.ACTIVE) {
+            refreshSessionService.revokeAllForUser(user.getId());
+        }
         return toResponse(user);
     }
 
