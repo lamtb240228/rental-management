@@ -11,8 +11,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.lam.rentalmanagement.domain.entity.UserAccountStatus;
 import com.lam.rentalmanagement.dto.ChangePasswordRequest;
 import com.lam.rentalmanagement.dto.CreateUserAccountRequest;
 import com.lam.rentalmanagement.dto.UpdateUserAccountRequest;
@@ -32,9 +34,12 @@ public class UserAccountController {
     }
 
     @GetMapping
-    public ResponseEntity<List<UserAccountResponse>> getAllUserAccounts() {
+    public ResponseEntity<List<UserAccountResponse>> searchUserAccounts(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) UserAccountStatus status
+    ) {
         return ResponseEntity.ok(
-                userAccountService.getAllUserAccounts()
+                userAccountService.searchUserAccounts(keyword, status)
         );
     }
 

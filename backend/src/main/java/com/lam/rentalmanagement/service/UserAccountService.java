@@ -40,7 +40,19 @@ public class UserAccountService {
     }
 
     public List<UserAccountResponse> getAllUserAccounts() {
-        return userAccountRepository.findAll()
+        return searchUserAccounts("", null);
+    }
+
+    public List<UserAccountResponse> searchUserAccounts(
+            String keyword,
+            UserAccountStatus status
+    ) {
+        String normalizedKeyword = normalizeKeyword(keyword);
+
+        return userAccountRepository.searchUserAccounts(
+                        normalizedKeyword,
+                        status
+                )
                 .stream()
                 .map(UserAccountResponse::from)
                 .toList();
@@ -187,5 +199,13 @@ public class UserAccountService {
         }
 
         return phone.trim();
+    }
+
+    private String normalizeKeyword(String keyword) {
+        if (keyword == null || keyword.isBlank()) {
+            return "";
+        }
+
+        return keyword.trim();
     }
 }
