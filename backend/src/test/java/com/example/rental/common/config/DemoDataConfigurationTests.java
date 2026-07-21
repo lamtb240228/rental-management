@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,8 +43,8 @@ class DemoDataConfigurationTests {
 
     @Test
     void productionStartupLocksAnActiveKnownDemoAccount() throws Exception {
-        UserAccount account = new UserAccount();
-        account.setStatus(UserStatus.ACTIVE);
+        UserAccount account = mock(UserAccount.class);
+        when(account.getId()).thenReturn(100L);
         when(repository.findByEmailIgnoreCaseAndDeletedAtIsNull(anyString()))
             .thenReturn(Optional.of(account));
         when(repository.existsDistinctByRolesNameAndStatusAndDeletedAtIsNull(RoleName.ADMIN, UserStatus.ACTIVE))
@@ -56,13 +58,14 @@ class DemoDataConfigurationTests {
             refreshSessionService
         ).run(null);
 
-        assertEquals(UserStatus.LOCKED, account.getStatus());
+        verify(refreshSessionService, times(DemoDataProperties.ACCOUNT_EMAILS.size()))
+            .setUserStatusAndRevokeAll(100L, UserStatus.LOCKED);
     }
 
     @Test
     void productionStartupAcceptsLockedDemoAccounts() {
-        UserAccount account = new UserAccount();
-        account.setStatus(UserStatus.LOCKED);
+        UserAccount account = mock(UserAccount.class);
+        when(account.getId()).thenReturn(100L);
         when(repository.findByEmailIgnoreCaseAndDeletedAtIsNull(anyString()))
             .thenReturn(Optional.of(account));
         when(repository.existsDistinctByRolesNameAndStatusAndDeletedAtIsNull(RoleName.ADMIN, UserStatus.ACTIVE))
@@ -77,6 +80,8 @@ class DemoDataConfigurationTests {
                 refreshSessionService
             ).run(null)
         );
+        verify(refreshSessionService, times(DemoDataProperties.ACCOUNT_EMAILS.size()))
+            .setUserStatusAndRevokeAll(100L, UserStatus.LOCKED);
     }
 
     @Test

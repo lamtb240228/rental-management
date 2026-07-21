@@ -138,6 +138,7 @@ class MvpWorkflowIntegrationTests {
             .andExpect(status().isUnauthorized());
 
         updateStatus(adminToken, tenantAccountId, "ACTIVE");
+        assertTokenRejected(tenantToken);
         login("tenant@rental.local", "Password123!");
     }
 

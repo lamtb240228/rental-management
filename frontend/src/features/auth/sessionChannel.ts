@@ -1,14 +1,17 @@
-export type SessionSignalKind = "login" | "logout";
+import { isValidSessionGeneration } from "./sessionGeneration";
+
+export type SessionSignalKind = "login" | "logout" | "logout-complete";
 
 export type SessionSignal = {
   id: string;
+  generation: string;
   kind: SessionSignalKind;
   source: string;
   issuedAt: number;
 };
 
 export type SessionChannel = {
-  publish: (kind: SessionSignalKind) => void;
+  publish: (kind: SessionSignalKind, generation: string) => void;
   close: () => void;
 };
 
@@ -29,8 +32,8 @@ export function createSessionChannel(onSignal: (signal: SessionSignal) => void):
     });
 
     return {
-      publish(kind) {
-        channel.postMessage(createSignal(kind, source));
+      publish(kind, generation) {
+        channel.postMessage(createSignal(kind, source, generation));
       },
       close() {
         channel.close();
@@ -52,8 +55,8 @@ export function createSessionChannel(onSignal: (signal: SessionSignal) => void):
   window.addEventListener("storage", handleStorage);
 
   return {
-    publish(kind) {
-      const serialized = JSON.stringify(createSignal(kind, source));
+    publish(kind, generation) {
+      const serialized = JSON.stringify(createSignal(kind, source, generation));
       try {
         // Storage is used only as a transient notification bus. The payload
         // contains no token, cookie, profile, email, or other account data.
@@ -70,9 +73,13 @@ export function createSessionChannel(onSignal: (signal: SessionSignal) => void):
   };
 }
 
-function createSignal(kind: SessionSignalKind, source: string): SessionSignal {
+function createSignal(kind: SessionSignalKind, source: string, generation: string): SessionSignal {
+  if (!isValidSessionGeneration(generation)) {
+    throw new Error("Invalid session generation");
+  }
   return {
     id: createId(),
+    generation,
     kind,
     source,
     issuedAt: Date.now(),
@@ -89,7 +96,8 @@ function parseSignal(value: unknown): SessionSignal | null {
     const signal = candidate as Partial<SessionSignal>;
     if (
       typeof signal.id !== "string" ||
-      (signal.kind !== "login" && signal.kind !== "logout") ||
+      !isValidSessionGeneration(signal.generation) ||
+      (signal.kind !== "login" && signal.kind !== "logout" && signal.kind !== "logout-complete") ||
       typeof signal.source !== "string" ||
       typeof signal.issuedAt !== "number"
     ) {
@@ -98,6 +106,7 @@ function parseSignal(value: unknown): SessionSignal | null {
 
     return {
       id: signal.id,
+      generation: signal.generation,
       kind: signal.kind,
       source: signal.source,
       issuedAt: signal.issuedAt,

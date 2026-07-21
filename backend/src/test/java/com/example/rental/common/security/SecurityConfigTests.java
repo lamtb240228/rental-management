@@ -14,21 +14,39 @@ class SecurityConfigTests {
 
     @Test
     void trimsExplicitCorsOrigins() {
-        CorsConfigurationSource source = securityConfig.corsConfigurationSource(
+        TrustedOriginPolicy trustedOriginPolicy = new TrustedOriginPolicy(
             new CorsProperties(" https://app.example.test , http://localhost:5173 ")
+        );
+        CorsConfigurationSource source = securityConfig.corsConfigurationSource(
+            trustedOriginPolicy
         );
         CorsConfiguration configuration = source.getCorsConfiguration(new MockHttpServletRequest());
 
         assertThat(configuration).isNotNull();
         assertThat(configuration.getAllowedOrigins())
             .containsExactly("https://app.example.test", "http://localhost:5173");
+        assertThat(trustedOriginPolicy.allowsOrigin("https://app.example.test")).isTrue();
+        assertThat(trustedOriginPolicy.allowsReferer("https://app.example.test/account/security?tab=sessions")).isTrue();
+        assertThat(trustedOriginPolicy.allowsOrigin("https://evil.example.test")).isFalse();
     }
 
     @Test
     void rejectsWildcardCorsOriginWhenCredentialsAreEnabled() {
         assertThrows(
             IllegalArgumentException.class,
-            () -> securityConfig.corsConfigurationSource(new CorsProperties("*"))
+            () -> new TrustedOriginPolicy(new CorsProperties("*"))
+        );
+    }
+
+    @Test
+    void rejectsValuesThatAreNotExplicitOrigins() {
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new TrustedOriginPolicy(new CorsProperties("https://app.example.test/auth"))
+        );
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new TrustedOriginPolicy(new CorsProperties("https://*.example.test"))
         );
     }
 }

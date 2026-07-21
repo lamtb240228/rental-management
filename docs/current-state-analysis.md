@@ -262,22 +262,25 @@ V1–V6 và không triển khai chức năng P1:
 
 - JWT access token mặc định giảm còn 15 phút và chỉ được giữ trong memory của frontend.
 - V7 bổ sung `refresh_sessions`; opaque refresh token 256 bit chỉ đi qua cookie HttpOnly, database chỉ lưu SHA-256 hash.
-- Refresh rotation dùng transaction và pessimistic row lock; predecessor reuse revoke toàn bộ family.
-- Có API refresh, logout, logout-all và change-password; account bị khóa/vô hiệu/xóa mềm hoặc đổi mật khẩu không thể tiếp tục refresh.
-- Frontend bootstrap phiên sau reload, single-flight các 401, retry tối đa một lần và đồng bộ login/logout giữa tab mà không truyền credential.
+- Refresh rotation dùng transaction và thứ tự pessimistic lock ổn định `user_account` → `refresh_session`; predecessor reuse chỉ revoke đúng family và concurrent refresh không thể tạo hai successor hợp lệ.
+- V8 bổ sung `user_accounts.auth_version`. Logout-all hợp lệ, đổi mật khẩu, khóa/vô hiệu/xóa mềm account tăng version để access JWT cũ bị từ chối ngay ở request tiếp theo; logout một thiết bị vẫn chỉ revoke family hiện tại.
+- Login và change-password đọc lại credential/trạng thái dưới user lock. Token lịch sử, forged, expired hoặc revoked không thể dùng để revoke toàn bộ session của account.
+- Ba endpoint dùng refresh cookie kiểm tra `Origin` hoặc fallback `Referer` chính xác theo CORS allowlist trên path MVC đã canonicalize; request thiếu/sai nguồn bị từ chối trước khi mutation.
+- Frontend bootstrap phiên sau reload, single-flight các 401, retry tối đa một lần, offline-logout tombstone/retry, lỗi ứng dụng đã sanitize và đồng bộ generation giữa tab mà không truyền credential. Web Lock serialize request cookie-auth khi browser hỗ trợ; fallback không Web Locks fail-closed nhưng còn rủi ro buộc đăng nhập lại khi response cross-tab bị reorder.
 
-Vòng xác minh mới ngày 16/07/2026 đã chạy thực tế:
+Vòng tái kiểm độc lập và hardening ngày 21/07/2026 đã chạy thực tế:
 
 | Kiểm tra | Kết quả |
 | --- | --- |
-| `.\\mvnw.cmd clean test` | Pass 43/43; PostgreSQL Testcontainers 16.14; Flyway validate/migrate V1–V7 |
+| `.\\mvnw.cmd clean test` | Pass 62/62; PostgreSQL Testcontainers; bao phủ schema mới V1–V8, nâng cấp V7→V8 và 5 race concurrency bằng barrier |
 | `npm ci`, `npm run lint`, `npm run typecheck` | Pass |
-| `npm run test:run` | Pass 7 file/24 test |
-| `npm run build` | Pass; còn cảnh báo bundle chính khoảng 547 KB thuộc tối ưu P2 |
+| `npm run test:run` | Pass 11 file/41 test |
+| `npm run build` | Pass; còn cảnh báo bundle chính 554,31 KB thuộc tối ưu P2 |
 | `npm audit` | Pass; 0 vulnerability tại thời điểm kiểm tra |
-| `npm run test:e2e -- tests/e2e/auth-session.spec.ts` | Pass 16/16 trên Chromium, Firefox, WebKit và mobile Chrome |
+| `npm run test:e2e -- --project=webkit tests/e2e/auth-session.spec.ts` | Pass 4/4 khi lặp riêng nhóm WebKit |
+| `npm run test:e2e` | Pass 28/28 trên Chromium, Firefox, WebKit và mobile Chrome |
 | `docker compose config --quiet` và profile `app` | Pass |
-| Database development | PostgreSQL healthy; Flyway history V1–V7 đều `success=true`; 14 bảng ứng dụng cùng `flyway_schema_history` |
+| Database development | V8 được áp dụng riêng sau V1–V7, không chạy lại migration cũ; trước/sau migrate giữ nguyên 5 user và 28 refresh session. Sau E2E có 106 refresh-session và không record nào bị xóa; Flyway V1–V8 đều thành công, 0 migration lỗi, 15 bảng public gồm `flyway_schema_history` |
 
 Chi tiết thiết kế, cookie, endpoint và nguồn chính thức nằm tại
 [authentication-security.md](authentication-security.md).

@@ -60,8 +60,7 @@ public class AuthController {
         try {
             return sessionResponse(authService.refresh(readRefreshToken(request)), response);
         } catch (UnauthorizedException exception) {
-            refreshTokenCookieService.clear(response);
-            response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+            clearInvalidSession(response);
             throw exception;
         }
     }
@@ -74,8 +73,13 @@ public class AuthController {
 
     @PostMapping("/logout-all")
     ResponseEntity<Void> logoutAll(HttpServletRequest request, HttpServletResponse response) {
-        authService.logoutAll(readRefreshToken(request));
-        return clearSessionResponse(response);
+        try {
+            authService.logoutAll(readRefreshToken(request));
+            return clearSessionResponse(response);
+        } catch (UnauthorizedException exception) {
+            clearInvalidSession(response);
+            throw exception;
+        }
     }
 
     @PostMapping("/change-password")
@@ -107,6 +111,11 @@ public class AuthController {
         return ResponseEntity.noContent()
             .cacheControl(CacheControl.noStore())
             .build();
+    }
+
+    private void clearInvalidSession(HttpServletResponse response) {
+        refreshTokenCookieService.clear(response);
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
     }
 
     private String readRefreshToken(HttpServletRequest request) {

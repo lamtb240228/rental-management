@@ -1,7 +1,6 @@
 package com.example.rental.common.security;
 
 import com.example.rental.common.config.CorsProperties;
-import java.util.Arrays;
 import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -23,6 +22,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -32,10 +32,15 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
         HttpSecurity http,
+        TrustedOriginPolicy trustedOriginPolicy,
         JwtAuthenticationFilter jwtAuthenticationFilter,
         AuthenticationProvider authenticationProvider,
         RestSecurityExceptionHandler restSecurityExceptionHandler
     ) throws Exception {
+        CookieAuthOriginFilter cookieAuthOriginFilter = new CookieAuthOriginFilter(
+            trustedOriginPolicy,
+            restSecurityExceptionHandler
+        );
         return http
             .csrf(csrf -> csrf.disable())
             .cors(cors -> {})
@@ -59,6 +64,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .anyRequest().authenticated()
             )
+            .addFilterBefore(cookieAuthOriginFilter, CorsFilter.class)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .build();
     }
@@ -81,17 +87,9 @@ public class SecurityConfig {
     }
 
     @Bean
-    CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
-        List<String> allowedOrigins = Arrays.stream(properties.allowedOrigins().split(","))
-            .map(String::trim)
-            .filter(origin -> !origin.isBlank())
-            .toList();
-        if (allowedOrigins.isEmpty() || allowedOrigins.contains("*")) {
-            throw new IllegalArgumentException("CORS allowed origins must contain explicit origins");
-        }
-
+    CorsConfigurationSource corsConfigurationSource(TrustedOriginPolicy trustedOriginPolicy) {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(allowedOrigins);
+        configuration.setAllowedOrigins(trustedOriginPolicy.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

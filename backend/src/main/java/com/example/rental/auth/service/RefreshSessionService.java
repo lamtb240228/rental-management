@@ -7,6 +7,8 @@ import com.example.rental.common.security.RefreshTokenCodec;
 import com.example.rental.common.security.RefreshTokenCodec.RefreshTokenValue;
 import com.example.rental.common.security.RefreshTokenProperties;
 import com.example.rental.user.entity.UserAccount;
+import com.example.rental.user.entity.UserStatus;
+import com.example.rental.user.repository.UserAccountRepository;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
@@ -19,15 +21,18 @@ public class RefreshSessionService {
     private static final String INVALID_REFRESH_SESSION = "Refresh session is invalid or expired";
 
     private final RefreshSessionRepository repository;
+    private final UserAccountRepository userAccountRepository;
     private final RefreshTokenCodec tokenCodec;
     private final RefreshTokenProperties properties;
 
     public RefreshSessionService(
         RefreshSessionRepository repository,
+        UserAccountRepository userAccountRepository,
         RefreshTokenCodec tokenCodec,
         RefreshTokenProperties properties
     ) {
         this.repository = repository;
+        this.userAccountRepository = userAccountRepository;
         this.tokenCodec = tokenCodec;
         this.properties = properties;
     }
@@ -44,7 +49,9 @@ public class RefreshSessionService {
 
     @Transactional(noRollbackFor = UnauthorizedException.class)
     public RefreshSessionGrant rotate(String rawToken) {
-        RefreshSession current = findForUpdate(rawToken);
+        LockedRefreshSession lockedSession = lockUserThenSession(rawToken).orElseThrow(this::invalidSession);
+        RefreshSession current = lockedSession.session();
+        UserAccount userAccount = lockedSession.userAccount();
         OffsetDateTime usedAt = now();
 
         if (current.isRevoked()) {
@@ -58,9 +65,8 @@ public class RefreshSessionService {
             throw invalidSession();
         }
 
-        UserAccount userAccount = current.getUserAccount();
         if (!userAccount.isActive()) {
-            repository.revokeAllActiveForUser(userAccount.getId(), usedAt);
+            invalidateAndRevokeAll(userAccount, usedAt);
             throw invalidSession();
         }
 
@@ -79,23 +85,54 @@ public class RefreshSessionService {
 
     @Transactional
     public void revokeFamilyForToken(String rawToken) {
-        findOptionalForUpdate(rawToken).ifPresent(session ->
-            repository.revokeActiveFamily(session.getFamilyId(), now())
+        lockUserThenSession(rawToken).ifPresent(lockedSession ->
+            repository.revokeActiveFamily(lockedSession.session().getFamilyId(), now())
         );
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = UnauthorizedException.class)
     public void revokeAllForToken(String rawToken) {
-        findOptionalForUpdate(rawToken).ifPresent(session ->
-            repository.revokeAllActiveForUser(session.getUserAccount().getId(), now())
-        );
+        LockedRefreshSession lockedSession = lockUserThenSession(rawToken).orElseThrow(this::invalidSession);
+        RefreshSession session = lockedSession.session();
+        UserAccount userAccount = lockedSession.userAccount();
+        OffsetDateTime revokedAt = now();
+        if (session.isRevoked()) {
+            if (session.wasRotated()) {
+                repository.revokeActiveFamily(session.getFamilyId(), revokedAt);
+            }
+            throw invalidSession();
+        }
+        if (session.isExpiredAt(revokedAt)) {
+            repository.revokeActiveFamily(session.getFamilyId(), revokedAt);
+            throw invalidSession();
+        }
+        if (!userAccount.isActive()) {
+            throw invalidSession();
+        }
+        invalidateAndRevokeAll(userAccount, revokedAt);
     }
 
     @Transactional
     public void revokeAllForUser(Long userAccountId) {
         if (userAccountId != null) {
-            repository.revokeAllActiveForUser(userAccountId, now());
+            userAccountRepository.findByIdForUpdate(userAccountId)
+                .ifPresent(userAccount -> invalidateAndRevokeAll(userAccount, now()));
         }
+    }
+
+    @Transactional
+    public void setUserStatusAndRevokeAll(Long userAccountId, UserStatus status) {
+        if (userAccountId == null || status == null || status == UserStatus.ACTIVE) {
+            throw new IllegalArgumentException("A non-active account status is required");
+        }
+        userAccountRepository.findByIdForUpdate(userAccountId).ifPresent(userAccount -> {
+            userAccount.setStatus(status);
+            invalidateAndRevokeAll(userAccount, now());
+        });
+    }
+
+    public Optional<Long> resolveUserAccountId(String rawToken) {
+        return resolvePresentedToken(rawToken).map(PresentedToken::userAccountId);
     }
 
     private RefreshSessionGrant persistGrant(
@@ -116,16 +153,36 @@ public class RefreshSessionService {
         return new RefreshSessionGrant(token.rawToken(), expiresAt, userAccount);
     }
 
-    private RefreshSession findForUpdate(String rawToken) {
-        return findOptionalForUpdate(rawToken).orElseThrow(this::invalidSession);
+    private Optional<LockedRefreshSession> lockUserThenSession(String rawToken) {
+        Optional<PresentedToken> presentedToken = resolvePresentedToken(rawToken);
+        if (presentedToken.isEmpty()) {
+            return Optional.empty();
+        }
+
+        PresentedToken token = presentedToken.get();
+        Optional<UserAccount> userAccount = userAccountRepository.findByIdForUpdate(token.userAccountId());
+        if (userAccount.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return repository.findByTokenHashForUpdate(token.tokenHash())
+            .filter(session -> session.getUserAccount().getId().equals(token.userAccountId()))
+            .map(session -> new LockedRefreshSession(userAccount.get(), session));
     }
 
-    private Optional<RefreshSession> findOptionalForUpdate(String rawToken) {
+    private Optional<PresentedToken> resolvePresentedToken(String rawToken) {
         try {
-            return repository.findByTokenHashForUpdate(tokenCodec.hash(rawToken));
+            String tokenHash = tokenCodec.hash(rawToken);
+            return repository.findUserAccountIdByTokenHash(tokenHash)
+                .map(userAccountId -> new PresentedToken(tokenHash, userAccountId));
         } catch (IllegalArgumentException exception) {
             return Optional.empty();
         }
+    }
+
+    private void invalidateAndRevokeAll(UserAccount userAccount, OffsetDateTime revokedAt) {
+        userAccount.invalidateAuthentication();
+        repository.revokeAllActiveForUser(userAccount.getId(), revokedAt);
     }
 
     private OffsetDateTime now() {
@@ -134,5 +191,11 @@ public class RefreshSessionService {
 
     private UnauthorizedException invalidSession() {
         return new UnauthorizedException(INVALID_REFRESH_SESSION);
+    }
+
+    private record PresentedToken(String tokenHash, Long userAccountId) {
+    }
+
+    private record LockedRefreshSession(UserAccount userAccount, RefreshSession session) {
     }
 }

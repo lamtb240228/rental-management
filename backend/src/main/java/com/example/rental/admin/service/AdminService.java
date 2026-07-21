@@ -107,8 +107,10 @@ public class AdminService {
         if (id.equals(currentUserService.currentUserId()) && request.status() != user.getStatus()) {
             throw new BadRequestException("You cannot change your own account status");
         }
+        boolean invalidatesAuthentication = request.status() != user.getStatus()
+            && request.status() != UserStatus.ACTIVE;
         user.setStatus(request.status());
-        if (request.status() != UserStatus.ACTIVE) {
+        if (invalidatesAuthentication) {
             refreshSessionService.revokeAllForUser(user.getId());
         }
         return toResponse(user);

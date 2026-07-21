@@ -49,6 +49,9 @@ public class UserAccount extends BaseEntity {
     @Column(name = "last_login_at")
     private OffsetDateTime lastLoginAt;
 
+    @Column(name = "auth_version", nullable = false)
+    private long authVersion;
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
         name = "user_roles",
@@ -115,6 +118,25 @@ public class UserAccount extends BaseEntity {
 
     public void markLoggedIn() {
         lastLoginAt = OffsetDateTime.now();
+    }
+
+    public long getAuthVersion() {
+        return authVersion;
+    }
+
+    public void invalidateAuthentication() {
+        if (authVersion == Long.MAX_VALUE) {
+            throw new IllegalStateException("Authentication version cannot be incremented");
+        }
+        authVersion++;
+    }
+
+    @Override
+    public void softDelete() {
+        if (getDeletedAt() == null) {
+            super.softDelete();
+            invalidateAuthentication();
+        }
     }
 
     public Set<Role> getRoles() {

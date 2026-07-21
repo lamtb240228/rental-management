@@ -51,17 +51,12 @@ public class DemoDataConfiguration {
         RefreshSessionService refreshSessionService
     ) {
         return arguments -> {
-            List<UserAccount> demoAccounts = new ArrayList<>();
             for (String email : DemoDataProperties.ACCOUNT_EMAILS) {
-                repository.findByEmailIgnoreCaseAndDeletedAtIsNull(email).ifPresent(account -> {
-                    refreshSessionService.revokeAllForUser(account.getId());
-                    if (account.getStatus() != UserStatus.LOCKED) {
-                        account.setStatus(UserStatus.LOCKED);
-                        demoAccounts.add(account);
-                    }
-                });
+                repository.findByEmailIgnoreCaseAndDeletedAtIsNull(email)
+                    .ifPresent(account ->
+                        refreshSessionService.setUserStatusAndRevokeAll(account.getId(), UserStatus.LOCKED)
+                    );
             }
-            repository.saveAll(demoAccounts);
 
             if (repository.existsDistinctByRolesNameAndStatusAndDeletedAtIsNull(RoleName.ADMIN, UserStatus.ACTIVE)) {
                 return;

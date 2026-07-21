@@ -27,6 +27,7 @@ public class JwtService {
             .subject(principal.getUsername())
             .id(UUID.randomUUID().toString())
             .claim("userId", principal.getId())
+            .claim("authVersion", principal.getAuthVersion())
             .claim("roles", principal.getAuthorities().stream().map(Object::toString).toList())
             .issuedAt(Date.from(now))
             .expiration(Date.from(expiresAt))
@@ -40,7 +41,10 @@ public class JwtService {
 
     public boolean isValid(String token, UserPrincipal principal) {
         Claims claims = parseClaims(token);
+        Object authVersionClaim = claims.get("authVersion");
         return claims.getSubject().equals(principal.getUsername())
+            && authVersionClaim instanceof Number authVersion
+            && authVersion.longValue() == principal.getAuthVersion()
             && claims.getExpiration().after(new Date());
     }
 

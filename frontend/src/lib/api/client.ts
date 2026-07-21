@@ -1,16 +1,16 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
+import { runWithAuthSessionLock } from "./authRequestCoordinator";
+import { toApplicationError } from "./ApplicationError";
 import type { ApiResponse, AuthResponse } from "./types";
 
 export const LEGACY_TOKEN_KEY = "rental_access_token";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api";
-const REFRESH_LOCK_NAME = "rental-management-auth-refresh";
 const unauthorizedListeners = new Set<() => void>();
 
 type SessionRequestConfig = InternalAxiosRequestConfig & {
   _sessionEpoch?: number;
   _sessionRetry?: boolean;
-  _sessionToken?: string;
 };
 
 type ActiveRefresh = {
@@ -56,7 +56,6 @@ apiClient.interceptors.request.use((config) => {
 
   sessionConfig._sessionEpoch ??= getSessionEpoch();
   if (token && !isCredentialEndpoint(config.url)) {
-    sessionConfig._sessionToken = token;
     config.headers.Authorization = `Bearer ${token}`;
   } else {
     delete config.headers.Authorization;
@@ -74,7 +73,7 @@ apiClient.interceptors.response.use(
 
     const config = error.config as SessionRequestConfig;
     const requestEpoch = config._sessionEpoch;
-    const requestToken = config._sessionToken;
+    const requestToken = bearerToken(config.headers.Authorization);
 
     // Login/register/refresh/logout failures are terminal and must never enter
     // the access-token refresh interceptor.
@@ -107,7 +106,6 @@ apiClient.interceptors.response.use(
       }
 
       config._sessionRetry = true;
-      config._sessionToken = refreshedToken;
       config.headers.Authorization = `Bearer ${refreshedToken}`;
       return apiClient.request(config);
     } catch {
@@ -120,6 +118,18 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
   },
+);
+
+// Raw Axios errors contain the complete request config, including bearer
+// headers and login request bodies. Nothing outside this module receives that
+// object: callers only see the intentionally small ApplicationError contract.
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => Promise.reject(toApplicationError(error)),
+);
+authSessionClient.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => Promise.reject(toApplicationError(error)),
 );
 
 export function getAccessToken() {
@@ -167,7 +177,7 @@ export async function refreshAccessToken(expectedEpoch = getSessionEpoch()): Pro
   }
 
   const controller = new AbortController();
-  const promise = runWithCrossTabRefreshLock(async () => {
+  const promise = runWithAuthSessionLock(async () => {
     assertCurrentEpoch(expectedEpoch);
     const response = await authSessionClient.post<ApiResponse<AuthResponse>>(
       "/auth/refresh",
@@ -177,7 +187,7 @@ export async function refreshAccessToken(expectedEpoch = getSessionEpoch()): Pro
     assertCurrentEpoch(expectedEpoch);
     accessToken = response.data.data.accessToken;
     return response.data.data;
-  }).finally(() => {
+  }, controller.signal).finally(() => {
     if (activeRefresh?.promise === promise) {
       activeRefresh = null;
     }
@@ -243,12 +253,9 @@ function isCredentialEndpoint(url?: string) {
   ].some((path) => pathname.endsWith(path));
 }
 
-async function runWithCrossTabRefreshLock<T>(callback: () => Promise<T>): Promise<T> {
-  if (typeof navigator !== "undefined" && navigator.locks?.request) {
-    return navigator.locks.request(REFRESH_LOCK_NAME, { mode: "exclusive" }, callback);
+function bearerToken(value: unknown) {
+  if (typeof value !== "string" || !value.startsWith("Bearer ")) {
+    return null;
   }
-
-  // Older browsers retain the per-tab single-flight guarantee. The backend's
-  // transactional row lock remains the final concurrency guard across tabs.
-  return callback();
+  return value.slice("Bearer ".length);
 }

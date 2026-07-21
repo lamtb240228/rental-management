@@ -5,6 +5,7 @@ import {
   type InternalAxiosRequestConfig,
 } from "axios";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApplicationError } from "./ApplicationError";
 import type { ApiResponse, AuthResponse } from "./types";
 import {
   apiClient,
@@ -102,7 +103,7 @@ describe("apiClient hardened session handling", () => {
       throw unauthorized(config);
     };
 
-    await expect(apiClient.post("/auth/login", {}, { adapter })).rejects.toBeInstanceOf(AxiosError);
+    await expect(apiClient.post("/auth/login", {}, { adapter })).rejects.toBeInstanceOf(ApplicationError);
     expect(getAccessToken()).toBe("current-access");
   });
 
@@ -173,7 +174,7 @@ describe("apiClient hardened session handling", () => {
       throw unauthorized(config);
     };
 
-    await expect(apiClient.get("/protected", { adapter })).rejects.toBeInstanceOf(AxiosError);
+    await expect(apiClient.get("/protected", { adapter })).rejects.toBeInstanceOf(ApplicationError);
 
     expect(refreshCalls).toBe(1);
     expect(protectedCalls).toBe(2);
@@ -196,7 +197,7 @@ describe("apiClient hardened session handling", () => {
       throw unauthorized(config);
     };
 
-    await expect(apiClient.get("/protected", { adapter })).rejects.toBeInstanceOf(AxiosError);
+    await expect(apiClient.get("/protected", { adapter })).rejects.toBeInstanceOf(ApplicationError);
     expect(refreshCalls).toBe(1);
     expect(getAccessToken()).toBeNull();
     expect(listener).toHaveBeenCalledOnce();
@@ -225,7 +226,7 @@ describe("apiClient hardened session handling", () => {
     invalidateAccessSession();
     releaseRefresh();
 
-    await expect(request).rejects.toBeInstanceOf(Error);
+    await expect(request).rejects.toBeInstanceOf(ApplicationError);
     expect(getAccessToken()).toBeNull();
   });
 
@@ -239,7 +240,7 @@ describe("apiClient hardened session handling", () => {
       throw unauthorized(config);
     };
 
-    await expect(apiClient.get("/protected", { adapter })).rejects.toBeInstanceOf(AxiosError);
+    await expect(apiClient.get("/protected", { adapter })).rejects.toBeInstanceOf(ApplicationError);
     expect(getAccessToken()).toBe("new-access");
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
@@ -262,5 +263,59 @@ describe("apiClient hardened session handling", () => {
     expect(requestLock).toHaveBeenCalledOnce();
     expect(requestLock.mock.calls[0][0]).toBe("rental-management-auth-refresh");
     expect(requestLock.mock.calls[0][1]).toMatchObject({ mode: "exclusive" });
+  });
+
+  it("never exposes or serializes Axios config, bearer tokens, or login credentials", async () => {
+    const accessSecret = "access-secret-that-must-not-escape";
+    const passwordSecret = "password-secret-that-must-not-escape";
+    establishAccessSession(accessSecret);
+
+    const adapter: AxiosAdapter = async (config) => {
+      const isLogin = config.url === "/auth/login";
+      const status = isLogin ? 401 : 500;
+      throw new AxiosError(
+        "Raw Axios failure",
+        AxiosError.ERR_BAD_REQUEST,
+        config,
+        undefined,
+        response(
+          config,
+          { message: isLogin ? "Email or password is incorrect" : "Unexpected server error" },
+          status,
+        ),
+      );
+    };
+
+    const loginError = await apiClient
+      .post("/auth/login", { email: "person@example.test", password: passwordSecret }, { adapter })
+      .catch((error: unknown) => error);
+    const protectedError = await apiClient
+      .get("/protected", { adapter })
+      .catch((error: unknown) => error);
+
+    expect(loginError).toBeInstanceOf(ApplicationError);
+    expect(protectedError).toBeInstanceOf(ApplicationError);
+    expect(loginError).toMatchObject({
+      status: 401,
+      code: "ERR_BAD_REQUEST",
+      message: "Email or password is incorrect",
+      requestId: null,
+    });
+
+    const serialized = JSON.stringify({ loginError, protectedError });
+    expect(serialized).not.toContain(accessSecret);
+    expect(serialized).not.toContain(passwordSecret);
+    expect(serialized).not.toContain("person@example.test");
+    expect(serialized).not.toContain("Authorization");
+    expect(serialized).not.toContain("_sessionToken");
+    expect(serialized).not.toContain("config");
+    expect((loginError as { config?: unknown }).config).toBeUndefined();
+    expect((protectedError as { cause?: unknown }).cause).toBeUndefined();
+    expect(JSON.parse(JSON.stringify(loginError))).toEqual({
+      status: 401,
+      code: "ERR_BAD_REQUEST",
+      message: "Email or password is incorrect",
+      requestId: null,
+    });
   });
 });

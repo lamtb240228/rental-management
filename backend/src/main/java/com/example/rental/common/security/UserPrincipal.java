@@ -10,6 +10,7 @@ public class UserPrincipal implements UserDetails {
     private final String email;
     private final String passwordHash;
     private final String fullName;
+    private final long authVersion;
     private final Collection<? extends GrantedAuthority> authorities;
     private final boolean enabled;
 
@@ -18,6 +19,7 @@ public class UserPrincipal implements UserDetails {
         String email,
         String passwordHash,
         String fullName,
+        long authVersion,
         Collection<? extends GrantedAuthority> authorities,
         boolean enabled
     ) {
@@ -25,6 +27,7 @@ public class UserPrincipal implements UserDetails {
         this.email = email;
         this.passwordHash = passwordHash;
         this.fullName = fullName;
+        this.authVersion = authVersion;
         this.authorities = authorities;
         this.enabled = enabled;
     }
@@ -35,6 +38,7 @@ public class UserPrincipal implements UserDetails {
             user.getEmail(),
             user.getPasswordHash(),
             user.getFullName(),
+            user.getAuthVersion(),
             user.getAuthorities(),
             user.isActive()
         );
@@ -46,6 +50,10 @@ public class UserPrincipal implements UserDetails {
 
     public String getFullName() {
         return fullName;
+    }
+
+    public long getAuthVersion() {
+        return authVersion;
     }
 
     @Override

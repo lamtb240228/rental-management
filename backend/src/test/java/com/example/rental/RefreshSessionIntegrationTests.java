@@ -2,13 +2,16 @@ package com.example.rental;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -42,6 +45,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class RefreshSessionIntegrationTests {
     private static final String COOKIE_NAME = "rental_refresh";
     private static final String INITIAL_PASSWORD = "InitialPassword123!";
+    private static final String ALLOWED_ORIGIN = "https://app.example.test";
+    private static final String EVIL_SIBLING_ORIGIN = "https://evil.example.test";
+    private static final String CROSS_SITE_ORIGIN = "https://attacker.invalid";
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -51,6 +57,7 @@ class RefreshSessionIntegrationTests {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("app.cors.allowed-origins", () -> ALLOWED_ORIGIN);
     }
 
     @Autowired
@@ -143,7 +150,9 @@ class RefreshSessionIntegrationTests {
         Session session = register(credentials("logout"));
         String familyId = familyId(session.refreshToken());
 
-        MvcResult logout = mockMvc.perform(post("/api/auth/logout").cookie(refreshCookie(session.refreshToken())))
+        MvcResult logout = mockMvc.perform(post("/api/auth/logout")
+                .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                .cookie(refreshCookie(session.refreshToken())))
             .andExpect(status().isNoContent())
             .andReturn();
 
@@ -160,13 +169,36 @@ class RefreshSessionIntegrationTests {
         long userId = userId(credentials.email());
 
         assertThat(activeUserSessions(userId)).isEqualTo(2);
-        MvcResult logout = mockMvc.perform(post("/api/auth/logout-all").cookie(refreshCookie(first.refreshToken())))
+        MvcResult logout = mockMvc.perform(post("/api/auth/logout-all")
+                .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                .cookie(refreshCookie(first.refreshToken())))
             .andExpect(status().isNoContent())
             .andReturn();
 
         assertCookieCleared(logout);
         assertThat(activeUserSessions(userId)).isZero();
+        assertAccessRejected(first.accessToken());
         assertUnauthorizedAndCookieCleared(refreshResult(second.refreshToken()));
+    }
+
+    @Test
+    void logoutAllRejectsHistoricalTokenWithoutRevokingCurrentSessions() throws Exception {
+        Credentials credentials = credentials("logout-all-historical");
+        Session original = register(credentials);
+        Session rotated = refresh(original.refreshToken(), 200);
+        Session independent = login(credentials);
+        long userId = userId(credentials.email());
+
+        MvcResult rejected = mockMvc.perform(post("/api/auth/logout-all")
+                .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                .cookie(refreshCookie(original.refreshToken())))
+            .andExpect(status().isUnauthorized())
+            .andReturn();
+
+        assertUnauthorizedAndCookieCleared(rejected);
+        assertThat(activeUserSessions(userId)).isEqualTo(1);
+        assertUnauthorizedAndCookieCleared(refreshResult(rotated.refreshToken()));
+        refresh(independent.refreshToken(), 200);
     }
 
     @Test
@@ -197,6 +229,7 @@ class RefreshSessionIntegrationTests {
 
         assertCookieCleared(changed);
         assertThat(activeUserSessions(userId)).isZero();
+        assertAccessRejected(first.accessToken());
         loginExpecting(credentials, 401);
         login(new Credentials(credentials.email(), newPassword));
     }
@@ -229,6 +262,121 @@ class RefreshSessionIntegrationTests {
             executor.shutdownNow();
             assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
         }
+    }
+
+    @Test
+    void configuredOriginAndRefererCanUseCookieAuthenticatedEndpoints() throws Exception {
+        Session refreshSession = register(credentials("trusted-origin"));
+        Session rotated = session(mockMvc.perform(post("/api/auth/refresh")
+                .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                .cookie(refreshCookie(refreshSession.refreshToken())))
+            .andExpect(status().isOk())
+            .andReturn());
+        assertThat(rotated.refreshToken()).isNotEqualTo(refreshSession.refreshToken());
+
+        Session logoutSession = register(credentials("trusted-referer"));
+        String familyId = familyId(logoutSession.refreshToken());
+        mockMvc.perform(post("/api/auth/logout")
+                .header(HttpHeaders.REFERER, ALLOWED_ORIGIN + "/account/security")
+                .cookie(refreshCookie(logoutSession.refreshToken())))
+            .andExpect(status().isNoContent());
+        assertThat(activeFamilySessions(familyId)).isZero();
+    }
+
+    @Test
+    void evilSiblingOriginIsRejectedBeforeRefreshRotation() throws Exception {
+        Session session = register(credentials("evil-sibling"));
+        String familyId = familyId(session.refreshToken());
+
+        mockMvc.perform(post("/api/auth/refresh")
+                .header(HttpHeaders.ORIGIN, EVIL_SIBLING_ORIGIN)
+                .cookie(refreshCookie(session.refreshToken())))
+            .andExpect(status().isForbidden())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
+            .andExpect(jsonPath("$.message").value("Access is denied"));
+
+        assertSessionUntouched(session.refreshToken());
+        assertThat(activeFamilySessions(familyId)).isEqualTo(1);
+        refresh(session.refreshToken(), 200);
+    }
+
+    @Test
+    void matrixParameterCannotBypassRefreshOriginProtection() throws Exception {
+        Session session = register(credentials("matrix-origin-bypass"));
+        String familyId = familyId(session.refreshToken());
+
+        mockMvc.perform(post("/api/auth/refresh;source=cross-site")
+                .header(HttpHeaders.ORIGIN, CROSS_SITE_ORIGIN)
+                .cookie(refreshCookie(session.refreshToken())))
+            .andExpect(status().isBadRequest())
+            .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+
+        assertSessionUntouched(session.refreshToken());
+        assertThat(activeFamilySessions(familyId)).isEqualTo(1);
+        refresh(session.refreshToken(), 200);
+    }
+
+    @Test
+    void encodedRefreshPathCannotBypassOriginProtection() throws Exception {
+        Session session = register(credentials("encoded-refresh-origin"));
+        String familyId = familyId(session.refreshToken());
+
+        mockMvc.perform(post(URI.create("/api/auth/%72efresh"))
+                .header(HttpHeaders.ORIGIN, CROSS_SITE_ORIGIN)
+                .cookie(refreshCookie(session.refreshToken())))
+            .andExpect(status().isForbidden())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+
+        assertSessionUntouched(session.refreshToken());
+        assertThat(activeFamilySessions(familyId)).isEqualTo(1);
+        refresh(session.refreshToken(), 200);
+    }
+
+    @Test
+    void encodedLogoutAllPathCannotBypassOriginProtectionOrRevokeSessions() throws Exception {
+        Credentials credentials = credentials("encoded-logout-all-origin");
+        Session presented = register(credentials);
+        Session independent = login(credentials);
+        long userId = sessionUserId(presented.refreshToken());
+
+        mockMvc.perform(post(URI.create("/api/auth/log%6Fut-all"))
+                .header(HttpHeaders.ORIGIN, CROSS_SITE_ORIGIN)
+                .cookie(refreshCookie(presented.refreshToken())))
+            .andExpect(status().isForbidden())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+
+        assertSessionUntouched(presented.refreshToken());
+        assertThat(activeUserSessions(userId)).isEqualTo(2);
+        refresh(presented.refreshToken(), 200);
+        refresh(independent.refreshToken(), 200);
+    }
+
+    @Test
+    void crossSiteRefererAndMissingSourceHeadersAreRejectedWithoutRevocation() throws Exception {
+        Session session = register(credentials("cross-site"));
+        long userId = sessionUserId(session.refreshToken());
+        String familyId = familyId(session.refreshToken());
+
+        mockMvc.perform(post("/api/auth/logout")
+                .header(HttpHeaders.REFERER, CROSS_SITE_ORIGIN + "/attack")
+                .cookie(refreshCookie(session.refreshToken())))
+            .andExpect(status().isForbidden())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.message").value("Access is denied"));
+        mockMvc.perform(post("/api/auth/logout-all")
+                .cookie(refreshCookie(session.refreshToken())))
+            .andExpect(status().isForbidden())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
+            .andExpect(jsonPath("$.message").value("Access is denied"));
+
+        assertSessionUntouched(session.refreshToken());
+        assertThat(activeFamilySessions(familyId)).isEqualTo(1);
+        assertThat(activeUserSessions(userId)).isEqualTo(1);
+        refresh(session.refreshToken(), 200);
     }
 
     private MvcResult concurrentRefresh(String rawToken, CountDownLatch start) throws Exception {
@@ -264,14 +412,19 @@ class RefreshSessionIntegrationTests {
     }
 
     private Session refresh(String rawToken, int expectedStatus) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/auth/refresh").cookie(refreshCookie(rawToken)))
+        MvcResult result = mockMvc.perform(post("/api/auth/refresh")
+                .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                .cookie(refreshCookie(rawToken)))
             .andExpect(status().is(expectedStatus))
             .andReturn();
         return session(result);
     }
 
     private MvcResult refreshResult(String rawToken) throws Exception {
-        return mockMvc.perform(post("/api/auth/refresh").cookie(refreshCookie(rawToken))).andReturn();
+        return mockMvc.perform(post("/api/auth/refresh")
+                .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                .cookie(refreshCookie(rawToken)))
+            .andReturn();
     }
 
     private Session session(MvcResult result) throws Exception {
@@ -301,6 +454,7 @@ class RefreshSessionIntegrationTests {
         JsonNode error = objectMapper.readTree(result.getResponse().getContentAsString());
         assertThat(error.path("status").asInt()).isEqualTo(401);
         assertThat(error.path("message").asText()).isEqualTo("Refresh session is invalid or expired");
+        assertThat(result.getResponse().getHeader(HttpHeaders.CACHE_CONTROL)).isEqualTo("no-store");
         assertCookieCleared(result);
     }
 
@@ -359,6 +513,37 @@ class RefreshSessionIntegrationTests {
             userId
         );
         return count == null ? 0 : count;
+    }
+
+    private void assertAccessRejected(String accessToken) throws Exception {
+        mockMvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+            .andExpect(status().isUnauthorized());
+    }
+
+    private void assertSessionUntouched(String rawToken) {
+        Integer count = jdbcTemplate.queryForObject(
+            """
+                select count(*)
+                from refresh_sessions
+                where token_hash = ?
+                  and revoked_at is null
+                  and last_used_at is null
+                  and replaced_by_session_id is null
+                """,
+            Integer.class,
+            sha256(rawToken)
+        );
+        assertThat(count).isEqualTo(1);
+    }
+
+    private long sessionUserId(String rawToken) {
+        Long userAccountId = jdbcTemplate.queryForObject(
+            "select user_account_id from refresh_sessions where token_hash = ?",
+            Long.class,
+            sha256(rawToken)
+        );
+        assertThat(userAccountId).isNotNull();
+        return userAccountId;
     }
 
     private String sha256(String value) {

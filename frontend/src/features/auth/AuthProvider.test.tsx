@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +12,21 @@ import {
 import type { ApiResponse, AuthResponse } from "../../lib/api/types";
 import { queryClient } from "../../lib/query-client/queryClient";
 import { AuthProvider, useAuth } from "./AuthProvider";
+import {
+  clearLogoutPending,
+  isLogoutPending,
+  LOGOUT_PENDING_COOKIE_NAME,
+  LOGOUT_PENDING_STORAGE_KEY,
+  markLogoutPending,
+} from "./logoutPending";
 import { SESSION_SIGNAL_STORAGE_KEY, type SessionSignal } from "./sessionChannel";
+import {
+  clearSessionGeneration,
+  getSessionGeneration,
+  setSessionGeneration,
+} from "./sessionGeneration";
+
+const GENERATION_A = "generation-a-123456";
 
 const accountA: AuthResponse = {
   accessToken: "account-a-access",
@@ -97,9 +111,13 @@ function renderProvider() {
   );
 }
 
-function dispatchSignal(kind: SessionSignal["kind"]) {
+function dispatchSignal(
+  kind: SessionSignal["kind"],
+  generation = getSessionGeneration() ?? "generation-remote-123456",
+) {
   const signal: SessionSignal = {
     id: `signal-${kind}`,
+    generation,
     kind,
     source: "another-tab",
     issuedAt: Date.now(),
@@ -116,6 +134,8 @@ describe("AuthProvider refresh sessions", () => {
     queryClient.clear();
     window.localStorage.clear();
     window.sessionStorage.clear();
+    clearLogoutPending();
+    clearSessionGeneration();
     // Exercise the production storage-event fallback deterministically. Its
     // payload contains signals only; access credentials remain in memory.
     Object.defineProperty(globalThis, "BroadcastChannel", {
@@ -127,6 +147,8 @@ describe("AuthProvider refresh sessions", () => {
   afterEach(() => {
     cleanup();
     invalidateAccessSession();
+    clearLogoutPending();
+    clearSessionGeneration();
     queryClient.clear();
     authSessionClient.defaults.adapter = originalAuthAdapter;
     Object.defineProperty(globalThis, "BroadcastChannel", {
@@ -206,7 +228,9 @@ describe("AuthProvider refresh sessions", () => {
     expect(screen.getByText("anonymous")).toBeInTheDocument();
     expect(getAccessToken()).toBeNull();
     expect(logoutCalls).toBe(1);
+    expect(isLogoutPending()).toBe(true);
     releaseLogout();
+    await waitFor(() => expect(isLogoutPending()).toBe(false));
   });
 
   it("applies a cross-tab logout signal without calling backend logout again", async () => {
@@ -226,6 +250,11 @@ describe("AuthProvider refresh sessions", () => {
     expect(await screen.findByText("anonymous")).toBeInTheDocument();
     expect(getAccessToken()).toBeNull();
     expect(logoutCalls).toBe(0);
+    expect(isLogoutPending()).toBe(true);
+
+    dispatchSignal("logout-complete");
+    await waitFor(() => expect(isLogoutPending()).toBe(false));
+    expect(screen.getByText("anonymous")).toBeInTheDocument();
   });
 
   it("restores from the HttpOnly cookie after a cross-tab login signal without rebroadcasting", async () => {
@@ -246,7 +275,11 @@ describe("AuthProvider refresh sessions", () => {
 
     expect(await screen.findByText("account-b@example.test")).toBeInTheDocument();
     expect(refreshCalls).toBe(2);
-    expect(setItem).not.toHaveBeenCalled();
+    expect(setItem).not.toHaveBeenCalledWith(
+      SESSION_SIGNAL_STORAGE_KEY,
+      expect.anything(),
+    );
+    expect(JSON.stringify(setItem.mock.calls)).not.toMatch(/token|password|email|account-b-access/i);
   });
 
   it("does not restore a late startup refresh after logout", async () => {
@@ -271,5 +304,150 @@ describe("AuthProvider refresh sessions", () => {
     await Promise.resolve();
     expect(screen.queryByText("account-a@example.test")).not.toBeInTheDocument();
     expect(getAccessToken()).toBeNull();
+  });
+
+  it("keeps a failed logout pending across reload and retries it when the browser comes online", async () => {
+    let refreshCalls = 0;
+    let logoutCalls = 0;
+    let online = false;
+    authSessionClient.defaults.adapter = async (config) => {
+      if (config.url === "/auth/refresh") {
+        refreshCalls += 1;
+        return apiResponse(config, accountA);
+      }
+      logoutCalls += 1;
+      if (!online) {
+        throw new AxiosError("Network Error", AxiosError.ERR_NETWORK, config);
+      }
+      return noContent(config);
+    };
+
+    const firstRender = renderProvider();
+    await screen.findByText("account-a@example.test");
+    await userEvent.click(screen.getByRole("button", { name: "Đăng xuất" }));
+
+    await waitFor(() => expect(logoutCalls).toBe(1));
+    expect(screen.getByText("anonymous")).toBeInTheDocument();
+    const pendingGeneration = getSessionGeneration();
+    expect(pendingGeneration).not.toBeNull();
+    expect(window.localStorage.getItem(LOGOUT_PENDING_STORAGE_KEY)).toBe(pendingGeneration);
+    expect(document.cookie).toContain(`${LOGOUT_PENDING_COOKIE_NAME}=${pendingGeneration}`);
+    expect(JSON.stringify(Object.fromEntries(Object.entries(window.localStorage))))
+      .not.toMatch(/token|password|email|account-a-access/i);
+
+    firstRender.unmount();
+    renderProvider();
+
+    expect(await screen.findByText("anonymous")).toBeInTheDocument();
+    await waitFor(() => expect(logoutCalls).toBe(2));
+    expect(refreshCalls).toBe(1);
+    expect(isLogoutPending()).toBe(true);
+
+    online = true;
+    window.dispatchEvent(new Event("online"));
+
+    await waitFor(() => expect(logoutCalls).toBe(3));
+    await waitFor(() => expect(isLogoutPending()).toBe(false));
+    expect(document.cookie).not.toContain(`${LOGOUT_PENDING_COOKIE_NAME}=`);
+    expect(refreshCalls).toBe(1);
+    expect(screen.getByText("anonymous")).toBeInTheDocument();
+    expect(getAccessToken()).toBeNull();
+  });
+
+  it("clears pending logout only after an explicit successful login and ignores the late logout response", async () => {
+    let logoutCalls = 0;
+    let releaseLogout!: () => void;
+    const logoutGate = new Promise<void>((resolve) => {
+      releaseLogout = resolve;
+    });
+    setSessionGeneration(GENERATION_A);
+    markLogoutPending(GENERATION_A);
+    authSessionClient.defaults.adapter = async (config) => {
+      if (config.url === "/auth/refresh") {
+        throw unauthorized(config);
+      }
+      logoutCalls += 1;
+      await logoutGate;
+      return noContent(config);
+    };
+
+    renderProvider();
+    expect(await screen.findByText("anonymous")).toBeInTheDocument();
+    await waitFor(() => expect(logoutCalls).toBe(1));
+    expect(isLogoutPending()).toBe(true);
+
+    await userEvent.click(screen.getByRole("button", { name: "Đổi tài khoản" }));
+
+    expect(await screen.findByText("account-b@example.test")).toBeInTheDocument();
+    expect(isLogoutPending()).toBe(false);
+    expect(getAccessToken()).toBe("account-b-access");
+
+    releaseLogout();
+    await Promise.resolve();
+    expect(screen.getByText("account-b@example.test")).toBeInTheDocument();
+    expect(isLogoutPending()).toBe(false);
+  });
+
+  it("ignores a delayed logout signal that targets the session before a newer login", async () => {
+    setSessionGeneration(GENERATION_A);
+    authSessionClient.defaults.adapter = async (config) => apiResponse(config, accountA);
+    renderProvider();
+    await screen.findByText("account-a@example.test");
+
+    await userEvent.click(screen.getByRole("button", { name: "Đổi tài khoản" }));
+    const newerGeneration = getSessionGeneration();
+    expect(newerGeneration).not.toBe(GENERATION_A);
+
+    dispatchSignal("logout", GENERATION_A);
+    await Promise.resolve();
+
+    expect(screen.getByText("account-b@example.test")).toBeInTheDocument();
+    expect(getAccessToken()).toBe("account-b-access");
+    expect(getSessionGeneration()).toBe(newerGeneration);
+    expect(isLogoutPending()).toBe(false);
+  });
+
+  it("ignores a delayed logout-complete signal that targets the session before a newer login", async () => {
+    setSessionGeneration(GENERATION_A);
+    authSessionClient.defaults.adapter = async (config) => apiResponse(config, accountA);
+    renderProvider();
+    await screen.findByText("account-a@example.test");
+
+    await userEvent.click(screen.getByRole("button", { name: "Đổi tài khoản" }));
+    const newerGeneration = getSessionGeneration();
+    expect(newerGeneration).not.toBe(GENERATION_A);
+
+    dispatchSignal("logout-complete", GENERATION_A);
+    await Promise.resolve();
+
+    expect(screen.getByText("account-b@example.test")).toBeInTheDocument();
+    expect(getAccessToken()).toBe("account-b-access");
+    expect(getSessionGeneration()).toBe(newerGeneration);
+    expect(isLogoutPending()).toBe(false);
+  });
+
+  it("never lets an old login signal revive a generation that started or completed logout", async () => {
+    setSessionGeneration(GENERATION_A);
+    authSessionClient.defaults.adapter = async (config) => apiResponse(config, accountA);
+    renderProvider();
+    await screen.findByText("account-a@example.test");
+
+    dispatchSignal("logout", GENERATION_A);
+    expect(await screen.findByText("anonymous")).toBeInTheDocument();
+    expect(isLogoutPending()).toBe(true);
+
+    dispatchSignal("login", GENERATION_A);
+    await Promise.resolve();
+    expect(screen.getByText("anonymous")).toBeInTheDocument();
+    expect(isLogoutPending()).toBe(true);
+
+    dispatchSignal("logout-complete", GENERATION_A);
+    await waitFor(() => expect(isLogoutPending()).toBe(false));
+    dispatchSignal("login", GENERATION_A);
+    await Promise.resolve();
+
+    expect(screen.getByText("anonymous")).toBeInTheDocument();
+    expect(getAccessToken()).toBeNull();
+    expect(getSessionGeneration()).toBeNull();
   });
 });

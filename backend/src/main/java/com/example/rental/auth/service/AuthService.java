@@ -19,20 +19,21 @@ import com.example.rental.common.security.UserPrincipal;
 import com.example.rental.user.entity.UserAccount;
 import com.example.rental.user.repository.UserAccountRepository;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
-    private final AuthenticationManager authenticationManager;
+    private static final String INVALID_CREDENTIALS = "Email or password is incorrect";
+
     private final PasswordEncoder passwordEncoder;
+    private final String dummyPasswordHash;
     private final JwtService jwtService;
     private final UserAccountRepository userAccountRepository;
     private final RoleRepository roleRepository;
@@ -40,7 +41,6 @@ public class AuthService {
     private final RefreshSessionService refreshSessionService;
 
     public AuthService(
-        AuthenticationManager authenticationManager,
         PasswordEncoder passwordEncoder,
         JwtService jwtService,
         UserAccountRepository userAccountRepository,
@@ -48,8 +48,8 @@ public class AuthService {
         CurrentUserService currentUserService,
         RefreshSessionService refreshSessionService
     ) {
-        this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
+        this.dummyPasswordHash = passwordEncoder.encode("dummy-password-not-used-for-authentication");
         this.jwtService = jwtService;
         this.userAccountRepository = userAccountRepository;
         this.roleRepository = roleRepository;
@@ -85,13 +85,16 @@ public class AuthService {
 
     @Transactional
     public AuthenticatedSession login(LoginRequest request, String currentRefreshToken) {
-        Authentication authentication = authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(normalizeEmail(request.email()), request.password())
-        );
-        UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
-        UserAccount user = userAccountRepository.findByIdAndDeletedAtIsNullForUpdate(principal.getId())
-            .filter(UserAccount::isActive)
-            .orElseThrow(() -> new UnauthorizedException("Email or password is incorrect"));
+        String normalizedEmail = normalizeEmail(request.email());
+        UserAccount user = lockLoginContext(normalizedEmail, currentRefreshToken)
+            .orElseGet(() -> {
+                passwordMatches(request.password(), dummyPasswordHash);
+                throw invalidCredentials();
+            });
+        boolean credentialsMatch = passwordMatches(request.password(), user.getPasswordHash());
+        if (!credentialsMatch || !user.isActive() || !normalizeEmail(user.getEmail()).equals(normalizedEmail)) {
+            throw invalidCredentials();
+        }
         user.markLoggedIn();
         revokeCurrentBrowserSession(currentRefreshToken);
         return createAuthenticatedSession(user);
@@ -115,10 +118,10 @@ public class AuthService {
         UserAccount user = userAccountRepository.findByIdAndDeletedAtIsNullForUpdate(currentUserService.currentUserId())
             .filter(UserAccount::isActive)
             .orElseThrow(() -> new UnauthorizedException("Authentication is required"));
-        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+        if (!passwordMatches(request.currentPassword(), user.getPasswordHash())) {
             throw new UnauthorizedException("Current password is incorrect");
         }
-        if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
+        if (passwordMatches(request.newPassword(), user.getPasswordHash())) {
             throw new BadRequestException("New password must be different from the current password");
         }
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
@@ -152,6 +155,38 @@ public class AuthService {
     private void revokeCurrentBrowserSession(String currentRefreshToken) {
         if (currentRefreshToken != null && !currentRefreshToken.isBlank()) {
             refreshSessionService.revokeFamilyForToken(currentRefreshToken);
+        }
+    }
+
+    private Optional<UserAccount> lockLoginContext(String normalizedEmail, String currentRefreshToken) {
+        Optional<Long> loginUserId = userAccountRepository.findIdByEmailIgnoreCase(normalizedEmail);
+        if (loginUserId.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Set<Long> userIdsToLock = new TreeSet<>();
+        userIdsToLock.add(loginUserId.get());
+        refreshSessionService.resolveUserAccountId(currentRefreshToken).ifPresent(userIdsToLock::add);
+
+        UserAccount loginUser = null;
+        for (Long userAccountId : userIdsToLock) {
+            Optional<UserAccount> lockedUser = userAccountRepository.findByIdForUpdate(userAccountId);
+            if (userAccountId.equals(loginUserId.get()) && lockedUser.isPresent()) {
+                loginUser = lockedUser.get();
+            }
+        }
+        return Optional.ofNullable(loginUser);
+    }
+
+    private UnauthorizedException invalidCredentials() {
+        return new UnauthorizedException(INVALID_CREDENTIALS);
+    }
+
+    private boolean passwordMatches(String rawPassword, String passwordHash) {
+        try {
+            return passwordEncoder.matches(rawPassword, passwordHash);
+        } catch (IllegalArgumentException exception) {
+            return false;
         }
     }
 
